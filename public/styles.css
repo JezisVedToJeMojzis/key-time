@@ -52,6 +52,12 @@ html, body {
   text-align: center;
 }
 .banner h2 { font-size: 1.5rem; margin-bottom: 4px; }
+.banner h2 .bell-key {
+  height: 1.1em;
+  width: 1.1em;
+  vertical-align: -0.2em;
+  border-radius: 5px;
+}
 .banner p { margin: 0 0 16px; color: rgba(255,255,255,0.85); }
 
 /* Status */
@@ -97,6 +103,13 @@ html, body {
 .btn-secondary { background: var(--bg-card-2); }
 .btn-ghost { background: transparent; border: 1px solid var(--bg-card-2); color: var(--text-dim); flex: 0 0 auto; }
 .btn-lg { padding: 16px; font-size: 1.1rem; background: #fff; color: var(--accent); }
+.btn-danger {
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: var(--danger);
+  margin-top: 16px;
+}
+.btn-danger:hover { background: rgba(239, 68, 68, 0.12); }
 .btn-small { padding: 8px 12px; font-size: 0.85rem; flex: 0 0 auto; }
 
 /* Settings */
@@ -147,5 +160,9 @@ html, body {
 }
 .history .idx { color: var(--text-dim); font-weight: 600; margin-right: 10px; }
 .history .gap { color: var(--text-dim); font-size: 0.8rem; }
+
+/* Session report */
+.report { border: 1px solid var(--accent); }
+.report #rep-range { text-align: center; }
 
 .footer { text-align: center; color: var(--text-dim); font-size: 0.8rem; }

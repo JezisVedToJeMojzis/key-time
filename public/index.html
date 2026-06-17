@@ -22,9 +22,30 @@
 
     <!-- Shown when the app is opened from a notification -->
     <section id="keytime-banner" class="card banner hidden">
-      <h2>It's key time! 🔔</h2>
+      <h2>It's key time! 🔔 <img class="bell-key" src="./icons/icon.svg" alt="key" /></h2>
       <p>Ready for the next one?</p>
       <button id="banner-start" class="btn btn-primary btn-lg">Start next timer</button>
+    </section>
+
+    <!-- Last-session report, shown after a reset -->
+    <section id="report-card" class="card report hidden">
+      <h2>Session report 📋</h2>
+      <div class="stats-summary">
+        <div class="stat">
+          <span class="stat-num" id="rep-count">0</span>
+          <span class="stat-label">key times</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num" id="rep-duration">—</span>
+          <span class="stat-label">session length</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num" id="rep-avg">—</span>
+          <span class="stat-label">avg gap</span>
+        </div>
+      </div>
+      <p id="rep-range" class="hint"></p>
+      <button id="report-done" class="btn btn-primary">Done — start fresh</button>
     </section>
 
     <!-- Live status -->
@@ -36,6 +57,7 @@
       <div class="countdown" id="countdown">--:--:--</div>
       <div class="status-actions">
         <button id="start-btn" class="btn btn-primary">Start timer</button>
+        <button id="fire-btn" class="btn btn-secondary hidden">Key time now</button>
         <button id="stop-btn" class="btn btn-ghost hidden">Stop</button>
       </div>
       <p id="enable-hint" class="hint hidden">
@@ -81,6 +103,7 @@
       </div>
       <ol id="history-list" class="history"></ol>
       <p id="history-empty" class="hint">No key times yet — start the timer.</p>
+      <button id="reset-btn" class="btn btn-danger hidden">End session &amp; reset</button>
     </section>
 
     <footer class="footer">

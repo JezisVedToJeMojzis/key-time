@@ -1,19 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Key Time">
   <rect width="512" height="512" rx="96" fill="#4f46e5"/>
-  <g fill="none" stroke="#ffffff" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
-    <!-- clock -->
-    <circle cx="200" cy="200" r="120"/>
-    <path d="M200 130 V200 L250 235"/>
-  </g>
-  <g fill="#ffffff">
-    <!-- key bow -->
-    <circle cx="330" cy="330" r="46"/>
-    <circle cx="330" cy="330" r="18" fill="#4f46e5"/>
-  </g>
-  <g stroke="#ffffff" stroke-width="26" stroke-linecap="round">
-    <!-- key shaft + teeth -->
-    <path d="M362 362 L432 432"/>
-    <path d="M410 410 L432 388"/>
-    <path d="M386 386 L410 362"/>
+  <g fill="none" stroke="#ffffff" stroke-width="34" stroke-linecap="round" stroke-linejoin="round">
+    <!-- key bow (left) -->
+    <circle cx="150" cy="256" r="78"/>
+    <!-- key shaft (horizontal) -->
+    <path d="M228 256 L408 256"/>
+    <!-- teeth -->
+    <path d="M360 256 L360 312"/>
+    <path d="M408 256 L408 300"/>
   </g>
 </svg>

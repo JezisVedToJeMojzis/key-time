@@ -7,6 +7,7 @@ const els = {
   statusText: $('status-text'),
   countdown: $('countdown'),
   startBtn: $('start-btn'),
+  fireBtn: $('fire-btn'),
   stopBtn: $('stop-btn'),
   enableHint: $('enable-hint'),
   enableBtn: $('enable-btn'),
@@ -19,6 +20,13 @@ const els = {
   statLast: $('stat-last'),
   historyList: $('history-list'),
   historyEmpty: $('history-empty'),
+  resetBtn: $('reset-btn'),
+  reportCard: $('report-card'),
+  repCount: $('rep-count'),
+  repDuration: $('rep-duration'),
+  repAvg: $('rep-avg'),
+  repRange: $('rep-range'),
+  reportDone: $('report-done'),
   connStatus: $('conn-status'),
 };
 
@@ -116,6 +124,20 @@ function fmtDuration(ms) {
   return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
 }
 
+function fmtLongDuration(ms) {
+  if (ms == null) return '—';
+  const min = Math.round(ms / 60000);
+  if (min < 1) return '<1m';
+  const d = Math.floor(min / 1440);
+  const h = Math.floor((min % 1440) / 60);
+  const m = min % 60;
+  const parts = [];
+  if (d) parts.push(`${d}d`);
+  if (h) parts.push(`${h}h`);
+  if (m && !d) parts.push(`${m}m`);
+  return parts.join(' ') || '<1m';
+}
+
 function fmtTime(ts) {
   return new Date(ts).toLocaleString(undefined, {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -149,10 +171,15 @@ function render() {
 
   els.startBtn.disabled = !pushReady();
   els.startBtn.textContent = running ? 'Restart timer' : 'Start timer';
+  els.fireBtn.classList.toggle('hidden', !running);
   els.stopBtn.classList.toggle('hidden', !running);
 
   els.statusText.textContent = running ? 'Running' : (s ? 'Waiting' : '—');
   els.statusText.className = 'status-pill ' + (running ? 'running' : (s ? 'waiting' : ''));
+
+  // Show the reset button only when there's an active session to end.
+  const hasSession = running || (s?.history?.length > 0);
+  els.resetBtn.classList.toggle('hidden', !hasSession);
 
   renderStats();
   updateCountdown();
@@ -251,6 +278,39 @@ async function stopTimer() {
   applyServerState(s);
 }
 
+// Trigger key time early: log it now, stop the timer, and offer to restart.
+async function fireNow() {
+  const s = await api('/api/fire', 'POST', { id: state.id });
+  applyServerState(s);
+  showBanner();
+}
+
+// --- End session: show report, then clear everything ---------------------
+async function resetSession() {
+  if (!confirm('End this key-time session? You\'ll see a report, then the timer and all statistics are cleared.')) {
+    return;
+  }
+  const { report, state: s } = await api('/api/reset', 'POST', { id: state.id });
+  applyServerState(s);
+  showReport(report);
+  els.banner.classList.add('hidden');
+}
+
+function showReport(report) {
+  els.repCount.textContent = String(report.count || 0);
+  if (report.count > 0) {
+    els.repDuration.textContent = fmtLongDuration(report.durationMs);
+    els.repAvg.textContent = report.count > 1 ? fmtLongDuration(report.avgGapMs) : '—';
+    els.repRange.textContent = `First: ${fmtTime(report.first)}  ·  Last: ${fmtTime(report.last)}`;
+  } else {
+    els.repDuration.textContent = '—';
+    els.repAvg.textContent = '—';
+    els.repRange.textContent = 'No key times were recorded this session.';
+  }
+  els.reportCard.classList.remove('hidden');
+  els.reportCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 // --- Polling -------------------------------------------------------------
 async function refreshState() {
   if (!state.id) return;
@@ -273,7 +333,10 @@ async function refreshState() {
 // --- Init ----------------------------------------------------------------
 async function init() {
   els.startBtn.addEventListener('click', startTimer);
+  els.fireBtn.addEventListener('click', fireNow);
   els.stopBtn.addEventListener('click', stopTimer);
+  els.resetBtn.addEventListener('click', resetSession);
+  els.reportDone.addEventListener('click', () => els.reportCard.classList.add('hidden'));
   els.bannerStart.addEventListener('click', startTimer);
   els.saveSettings.addEventListener('click', saveSettings);
   els.enableBtn?.addEventListener('click', enableNotifications);

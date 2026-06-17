@@ -1,0 +1,24 @@
+# Render Blueprint for Key Time.
+# Create the service from this file: Render Dashboard → New → Blueprint → pick the repo.
+# Then set the secret env vars (marked sync:false) in the dashboard.
+services:
+  - type: web
+    name: key-time
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/config
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: mailto:mojzissamuel@gmail.com
+      - key: DATABASE_URL
+        sync: false
+      - key: TICK_SECRET
+        sync: false

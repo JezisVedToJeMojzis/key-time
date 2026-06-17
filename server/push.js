@@ -35,7 +35,7 @@ async function sendTo(rec) {
     // 404/410 mean the subscription is gone — clean it up.
     if (err.statusCode === 404 || err.statusCode === 410) {
       console.log(`[push] subscription expired, removing ${rec.id}`);
-      removeRecord(rec.id);
+      await removeRecord(rec.id);
     } else {
       console.error(`[push] send failed for ${rec.id}:`, err.statusCode, err.body || err.message);
     }
@@ -54,7 +54,7 @@ export async function tick(now = Date.now()) {
     if (rec.running && rec.nextFireAt && rec.nextFireAt <= now) {
       // Record the fire first so a failed send still stops the timer
       // (avoids a tight retry loop). Then attempt delivery.
-      recordFire(rec.id, rec.nextFireAt);
+      await recordFire(rec.id, rec.nextFireAt);
       const ok = await sendTo(rec);
       if (ok) sent++;
     }

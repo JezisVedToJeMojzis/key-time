@@ -27,34 +27,42 @@ app.get('/api/config', (_req, res) => {
 });
 
 // --- Subscribe / settings ------------------------------------------------
-app.post('/api/subscribe', (req, res) => {
+app.post('/api/subscribe', async (req, res) => {
   const { id, subscription, intervalMs } = req.body || {};
   if (!subscription || !subscription.endpoint) {
     return res.status(400).json({ error: 'subscription required' });
   }
-  const rec = store.upsertSubscription({ id, subscription, intervalMs });
+  const rec = await store.upsertSubscription({ id, subscription, intervalMs });
   res.json(publicState(rec));
 });
 
-app.post('/api/settings', (req, res) => {
+app.post('/api/settings', async (req, res) => {
   const { id, intervalMs } = req.body || {};
   if (!id || typeof intervalMs !== 'number' || intervalMs <= 0) {
     return res.status(400).json({ error: 'id and positive intervalMs required' });
   }
-  const rec = store.setInterval_(id, intervalMs);
+  const rec = await store.setInterval_(id, intervalMs);
   if (!rec) return res.status(404).json({ error: 'not found' });
   res.json(publicState(rec));
 });
 
 // --- Timer control -------------------------------------------------------
-app.post('/api/start', (req, res) => {
-  const rec = store.startTimer(req.body?.id);
+app.post('/api/start', async (req, res) => {
+  const rec = await store.startTimer(req.body?.id);
   if (!rec) return res.status(404).json({ error: 'not found' });
   res.json(publicState(rec));
 });
 
-app.post('/api/stop', (req, res) => {
-  const rec = store.stopTimer(req.body?.id);
+app.post('/api/stop', async (req, res) => {
+  const rec = await store.stopTimer(req.body?.id);
+  if (!rec) return res.status(404).json({ error: 'not found' });
+  res.json(publicState(rec));
+});
+
+// Manually trigger a key time now: log it in history and stop the timer,
+// just like an automatic fire — for when key time comes early.
+app.post('/api/fire', async (req, res) => {
+  const rec = await store.recordFire(req.body?.id);
   if (!rec) return res.status(404).json({ error: 'not found' });
   res.json(publicState(rec));
 });
@@ -75,6 +83,30 @@ app.post('/api/tick', async (req, res) => {
   res.json({ sent });
 });
 
+// End the session: build a report of what just happened, then clear it all.
+app.post('/api/reset', async (req, res) => {
+  const rec = store.getRecord(req.body?.id);
+  if (!rec) return res.status(404).json({ error: 'not found' });
+  const report = buildReport(rec.history);
+  const cleared = await store.clearSession(rec.id);
+  res.json({ report, state: publicState(cleared) });
+});
+
+function buildReport(history) {
+  const count = history.length;
+  if (count === 0) return { count: 0 };
+  const first = history[0].firedAt;
+  const last = history[count - 1].firedAt;
+  const durationMs = last - first;
+  return {
+    count,
+    first,
+    last,
+    durationMs,
+    avgGapMs: count > 1 ? Math.round(durationMs / (count - 1)) : null,
+  };
+}
+
 function publicState(rec) {
   return {
     id: rec.id,
@@ -93,6 +125,8 @@ const TICK_INTERVAL_MS = 15 * 1000;
 setInterval(() => {
   tick().catch((err) => console.error('[tick]', err));
 }, TICK_INTERVAL_MS);
+
+await store.init();
 
 app.listen(PORT, () => {
   console.log(`Key Time running on http://localhost:${PORT}`);
