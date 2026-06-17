@@ -52,18 +52,44 @@ and **Start timer**. (Web Push needs `localhost` or HTTPS — both work.)
 | GET    | `/api/state?id=`  | current timer state + key-time history         |
 | POST   | `/api/tick`       | process due timers (for external cron)         |
 
-## Deploying (free tier)
+## Deploying to Render (free tier)
 
-Any Node host works (Render, Fly, Railway, etc.). Two things to know:
+The whole app (frontend + backend) runs as one Render Web Service. A
+[`render.yaml`](render.yaml) blueprint is included.
 
-1. **Persistence** — the JSON store lives in `data/`. On hosts with an
-   ephemeral filesystem (e.g. Render free), attach a persistent disk mounted at
-   `data/`, or swap `server/store.js` for Postgres.
-2. **Sleeping hosts** — if the host sleeps when idle, the in-process scheduler
-   pauses and pushes won't fire. Set `TICK_SECRET` and have an external cron
-   (e.g. [cron-job.org](https://cron-job.org)) `POST /api/tick` every minute
-   with header `x-tick-secret: <your secret>`. That both wakes the app and
-   fires due notifications.
+### 1. Database (required)
+
+Render's free filesystem is ephemeral, so the store must be Postgres. Create a
+free **Neon** Postgres database and copy its connection string. The app creates
+its own table on first boot — no migrations needed. (Locally, leave
+`DATABASE_URL` unset and it uses `data/records.json` instead.)
+
+### 2. Create the service
+
+Render Dashboard → **New → Blueprint** → pick the `key-time` repo. It reads
+`render.yaml`. Then set these env vars (the secret ones aren't in the file):
+
+| Var                 | Value                                            |
+|---------------------|--------------------------------------------------|
+| `VAPID_PUBLIC_KEY`  | from `npm run gen-vapid` (or your local `.env`)  |
+| `VAPID_PRIVATE_KEY` | from `npm run gen-vapid` (or your local `.env`)  |
+| `VAPID_SUBJECT`     | `mailto:you@example.com`                          |
+| `DATABASE_URL`      | your Neon connection string                       |
+| `TICK_SECRET`       | any random string                                 |
+
+### 3. Keep it awake so timers fire
+
+Render free services sleep after ~15 min idle, which pauses the in-process
+scheduler. Add a free external cron (e.g. [cron-job.org](https://cron-job.org))
+that sends every minute:
+
+```
+POST https://<your-app>.onrender.com/api/tick
+Header: x-tick-secret: <your TICK_SECRET>
+```
+
+That wakes the service and fires any due notifications (within ~1 min of due
+time). Notifications keep working even with the app fully closed.
 
 ## Notes on notifications
 
