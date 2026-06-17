@@ -5,7 +5,7 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
 self.addEventListener('push', (event) => {
-  let data = { title: "It's key time!", body: 'Open to start the next timer.' };
+  let data = { title: "It's key time! 🔑", body: 'Open to start the next timer.' };
   try {
     if (event.data) data = { ...data, ...event.data.json() };
   } catch {

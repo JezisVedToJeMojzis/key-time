@@ -23,7 +23,7 @@ export function getPublicKey() {
 }
 
 const PAYLOAD = JSON.stringify({
-  title: "It's key time!",
+  title: "It's key time! 🔑",
   body: 'Open to start the next timer.',
 });
 

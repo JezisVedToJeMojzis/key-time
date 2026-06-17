@@ -52,12 +52,6 @@ html, body {
   text-align: center;
 }
 .banner h2 { font-size: 1.5rem; margin-bottom: 4px; }
-.banner h2 .bell-key {
-  height: 1.1em;
-  width: 1.1em;
-  vertical-align: -0.2em;
-  border-radius: 5px;
-}
 .banner p { margin: 0 0 16px; color: rgba(255,255,255,0.85); }
 
 /* Status */
@@ -131,6 +125,10 @@ html, body {
 .interval-input select:focus { outline: none; border-color: var(--accent); }
 
 .hint { color: var(--text-dim); font-size: 0.85rem; margin: 10px 0 0; min-height: 1em; }
+/* The save-confirmation message reserves no space when empty, so the button
+   doesn't have a big gap beneath it. */
+#settings-msg { margin: 0; min-height: 0; }
+#settings-msg:not(:empty) { margin-top: 8px; }
 
 /* Stats */
 .stats-summary {
