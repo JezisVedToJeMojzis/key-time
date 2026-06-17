@@ -1,0 +1,19 @@
+{
+  "name": "key-time",
+  "version": "1.0.0",
+  "description": "Key Time — a PWA that pushes \"It's key time!\" on an interval you control. The next timer only starts when you open the notification and start it again.",
+  "type": "module",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node --watch server/server.js",
+    "gen-vapid": "node server/gen-vapid.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "web-push": "^3.6.7"
+  }
+}

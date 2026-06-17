@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#4f46e5" />
+  <title>Key Time</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./icons/icon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Key Time" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <h1>🔑 Key Time</h1>
+      <p class="tagline">When it's key time, you'll know.</p>
+    </header>
+
+    <!-- Shown when the app is opened from a notification -->
+    <section id="keytime-banner" class="card banner hidden">
+      <h2>It's key time! 🔔</h2>
+      <p>Ready for the next one?</p>
+      <button id="banner-start" class="btn btn-primary btn-lg">Start next timer</button>
+    </section>
+
+    <!-- Live status -->
+    <section class="card" id="status-card">
+      <div class="status-row">
+        <span class="label">Status</span>
+        <span id="status-text" class="status-pill">—</span>
+      </div>
+      <div class="countdown" id="countdown">--:--:--</div>
+      <div class="status-actions">
+        <button id="start-btn" class="btn btn-primary">Start timer</button>
+        <button id="stop-btn" class="btn btn-ghost hidden">Stop</button>
+      </div>
+      <p id="enable-hint" class="hint hidden">
+        Enable notifications to receive your key time alerts.
+        <button id="enable-btn" class="btn btn-small">Enable notifications</button>
+      </p>
+    </section>
+
+    <!-- Settings -->
+    <section class="card">
+      <h2>Settings</h2>
+      <label class="field">
+        <span>Notify me every</span>
+        <div class="interval-input">
+          <input id="interval-value" type="number" min="1" step="1" value="1" inputmode="numeric" />
+          <select id="interval-unit">
+            <option value="60000">minutes</option>
+            <option value="3600000" selected>hours</option>
+            <option value="86400000">days</option>
+          </select>
+        </div>
+      </label>
+      <button id="save-settings" class="btn btn-secondary">Save interval</button>
+      <p id="settings-msg" class="hint"></p>
+    </section>
+
+    <!-- Statistics -->
+    <section class="card">
+      <h2>Statistics</h2>
+      <div class="stats-summary">
+        <div class="stat">
+          <span class="stat-num" id="stat-count">0</span>
+          <span class="stat-label">key times</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num" id="stat-first">—</span>
+          <span class="stat-label">first key time</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num" id="stat-last">—</span>
+          <span class="stat-label">latest</span>
+        </div>
+      </div>
+      <ol id="history-list" class="history"></ol>
+      <p id="history-empty" class="hint">No key times yet — start the timer.</p>
+    </section>
+
+    <footer class="footer">
+      <span id="conn-status">connecting…</span>
+    </footer>
+  </main>
+
+  <script src="./app.js" type="module"></script>
+</body>
+</html>

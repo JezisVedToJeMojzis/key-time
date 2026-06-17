@@ -1,0 +1,19 @@
+{
+  "name": "Key Time",
+  "short_name": "Key Time",
+  "description": "Get an \"It's key time!\" push on the interval you choose. The next timer starts when you open the notification.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
