@@ -18,7 +18,25 @@
     <header class="header">
       <h1>🔑 Key Time</h1>
       <p class="tagline">When it's key time, you'll know.</p>
+      <div id="account-bar" class="account-bar hidden">
+        <span>signed in as <strong id="account-name">—</strong></span>
+        <button id="logout-btn" class="btn btn-small btn-ghost">Log out</button>
+      </div>
     </header>
+
+    <!-- Pick a username (shown on first launch) -->
+    <section id="auth-screen" class="hidden">
+      <div class="auth-badge">🔑</div>
+      <h2>Welcome to Key Time</h2>
+      <p class="auth-sub">Pick a username to get started — it's how friends find you, and it's saved on this device.</p>
+      <form id="auth-form" autocomplete="off">
+        <input id="auth-username" class="auth-input" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="choose a username" maxlength="20" aria-label="Username" required />
+        <button id="auth-submit" type="submit" class="btn auth-btn">Continue</button>
+      </form>
+      <p id="auth-msg" class="hint auth-msg"></p>
+    </section>
+
+    <div id="app-body" class="hidden">
 
     <!-- Shown when the app is opened from a notification -->
     <section id="keytime-banner" class="card banner hidden">
@@ -67,7 +85,7 @@
     </section>
 
     <!-- Settings -->
-    <section class="card">
+    <section class="card card-collapsible" id="settings-card">
       <h2>Settings</h2>
       <label class="field">
         <span>Notify me every</span>
@@ -84,8 +102,53 @@
       <p id="settings-msg" class="hint"></p>
     </section>
 
+    <!-- Friends -->
+    <section class="card card-collapsible" id="friends-card">
+      <h2>Friends</h2>
+
+      <div class="friend-add">
+        <input id="friend-username" type="text" autocapitalize="none" spellcheck="false" placeholder="add by username" maxlength="20" />
+        <button id="friend-add-btn" class="btn btn-secondary">Add</button>
+      </div>
+      <p id="friend-msg" class="hint"></p>
+
+      <div id="requests-section" class="hidden">
+        <h3 class="subhead">Requests</h3>
+        <ul id="requests-list" class="friend-list"></ul>
+      </div>
+
+      <h3 class="subhead">Your friends</h3>
+      <ul id="friends-list" class="friend-list"></ul>
+      <p id="friends-empty" class="hint">No friends yet — share your QR code below.</p>
+
+      <details id="qr-details">
+        <summary>Show my QR code</summary>
+        <div class="qr-wrap">
+          <div id="qr-box" class="qr-box"></div>
+          <p class="hint">Friends scan this with their camera to add you.</p>
+        </div>
+      </details>
+    </section>
+
+    <!-- Key time invites (shown only when there are any) -->
+    <section class="card hidden" id="invites-card">
+      <h2>Key time invites</h2>
+
+      <div id="invites-incoming-section" class="hidden">
+        <h3 class="subhead">Invited you</h3>
+        <ul id="invites-incoming" class="friend-list"></ul>
+      </div>
+
+      <div id="invites-outgoing-section" class="hidden">
+        <h3 class="subhead">You invited</h3>
+        <ul id="invites-outgoing" class="friend-list"></ul>
+      </div>
+
+      <p id="invites-empty" class="hint">Tap “🔑 Invite” next to a friend to ask them to have key time.</p>
+    </section>
+
     <!-- Statistics -->
-    <section class="card">
+    <section class="card" id="stats-card">
       <h2>Statistics</h2>
       <div class="stats-summary">
         <div class="stat">
@@ -116,11 +179,14 @@
       <button id="reset-btn" class="btn btn-danger hidden">End session &amp; reset</button>
     </section>
 
+    </div><!-- /#app-body -->
+
     <footer class="footer">
       <span id="conn-status">connecting…</span>
     </footer>
   </main>
 
+  <script src="./vendor/qrcode.js"></script>
   <script src="./app.js" type="module"></script>
 </body>
 </html>

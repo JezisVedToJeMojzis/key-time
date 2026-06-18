@@ -10,8 +10,9 @@ try {
   /* no .env file — rely on real environment variables */
 }
 
-const { tick, getPublicKey, vapidConfigured } = await import('./push.js');
+const { tick, pushToUser, getPublicKey, vapidConfigured } = await import('./push.js');
 const store = await import('./store.js');
+const auth = await import('./auth.js');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -26,13 +27,218 @@ app.get('/api/config', (_req, res) => {
   res.json({ vapidPublicKey: getPublicKey(), pushEnabled: vapidConfigured });
 });
 
+// --- Auth ----------------------------------------------------------------
+function authedUser(req) {
+  const header = req.get('authorization') || '';
+  const token = header.replace(/^Bearer /i, '') || req.get('x-auth-token');
+  const userId = auth.verifyToken(token);
+  return userId ? store.getUser(userId) : null;
+}
+
+// Resolves the user or sends 401. Returns null when unauthorized.
+function requireUser(req, res) {
+  const user = authedUser(req);
+  if (!user) {
+    res.status(401).json({ error: 'authentication required' });
+    return null;
+  }
+  return user;
+}
+
+const publicUser = (u) => ({ id: u.id, username: u.username });
+
+// Claim a unique username. No password — identity is bound to this device via
+// the returned token. Keep the token and you stay signed in on this device.
+app.post('/api/register', async (req, res) => {
+  const username = String(req.body?.username || '').trim().replace(/\s+/g, ' ');
+  if (!auth.validUsername(username)) {
+    return res.status(400).json({ error: "3–20 characters: letters, digits, spaces, and _ . ' -" });
+  }
+  if (store.getUserByUsername(username)) {
+    return res.status(409).json({ error: 'that username is taken' });
+  }
+  const user = await store.createUser({ username });
+  res.json({ token: auth.signToken(user.id), user: publicUser(user) });
+});
+
+app.get('/api/me', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  res.json({ user: publicUser(user) });
+});
+
+// --- Friends -------------------------------------------------------------
+app.get('/api/friends', (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const friends = [];
+  const incoming = [];
+  const outgoing = [];
+  for (const f of store.friendshipsFor(me.id)) {
+    const otherId = f.requester === me.id ? f.addressee : f.requester;
+    const other = store.getUser(otherId);
+    if (!other) continue;
+    const entry = { friendshipId: f.id, user: publicUser(other) };
+    if (f.status === 'accepted') friends.push(entry);
+    else if (f.addressee === me.id) incoming.push(entry);
+    else outgoing.push(entry);
+  }
+  res.json({ friends, incoming, outgoing });
+});
+
+app.post('/api/friends/request', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const username = String(req.body?.username || '').trim().replace(/\s+/g, ' ');
+  const target = store.getUserByUsername(username);
+  if (!target) return res.status(404).json({ error: 'no user with that name' });
+  if (target.id === me.id) return res.status(400).json({ error: "that's you" });
+
+  const existing = store.friendshipBetween(me.id, target.id);
+  if (existing) {
+    if (existing.status === 'accepted') {
+      return res.status(409).json({ error: 'already friends' });
+    }
+    if (existing.requester === me.id) {
+      return res.status(409).json({ error: 'request already sent' });
+    }
+    // They already requested me → accept it now.
+    existing.status = 'accepted';
+    await store.saveFriendship(existing);
+    await pushToUser(target.id, {
+      title: '🔑 Friend added',
+      body: `${me.username} accepted your friend request.`,
+      data: { url: './' },
+    });
+    return res.json({ status: 'accepted', user: publicUser(target) });
+  }
+
+  await store.createFriendship({ requester: me.id, addressee: target.id });
+  await pushToUser(target.id, {
+    title: '🔑 Friend request',
+    body: `${me.username} wants to be your friend.`,
+    data: { url: './?friends=1' },
+  });
+  res.json({ status: 'pending', user: publicUser(target) });
+});
+
+app.post('/api/friends/respond', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const { friendshipId, accept } = req.body || {};
+  const f = store.getFriendship(friendshipId);
+  if (!f || f.addressee !== me.id || f.status !== 'pending') {
+    return res.status(404).json({ error: 'no such request' });
+  }
+  if (accept) {
+    f.status = 'accepted';
+    await store.saveFriendship(f);
+    await pushToUser(f.requester, {
+      title: '🔑 Friend added',
+      body: `${me.username} accepted your friend request.`,
+      data: { url: './' },
+    });
+    return res.json({ status: 'accepted' });
+  }
+  await store.removeFriendship(f.id);
+  res.json({ status: 'declined' });
+});
+
+// --- Invites ("wanna have a key time?") ----------------------------------
+app.get('/api/invites', (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const incoming = store
+    .invitesTo(me.id)
+    .filter((i) => i.status === 'pending')
+    .map((i) => ({ id: i.id, user: store.getUser(i.from) }))
+    .filter((i) => i.user)
+    .map((i) => ({ id: i.id, user: publicUser(i.user) }));
+  const outgoing = store
+    .invitesFrom(me.id)
+    .map((i) => {
+      const u = store.getUser(i.to);
+      return u ? { id: i.id, status: i.status, user: publicUser(u) } : null;
+    })
+    .filter(Boolean);
+  res.json({ incoming, outgoing });
+});
+
+app.post('/api/invite', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const friend = store.getUser(req.body?.toUserId);
+  if (!friend) return res.status(404).json({ error: 'no such user' });
+  const f = store.friendshipBetween(me.id, friend.id);
+  if (!f || f.status !== 'accepted') {
+    return res.status(403).json({ error: 'you can only invite friends' });
+  }
+  const dup = store
+    .invitesFrom(me.id)
+    .find((i) => i.to === friend.id && i.status === 'pending');
+  if (dup) return res.status(409).json({ error: 'invite already pending' });
+
+  const inv = await store.createInvite({ from: me.id, to: friend.id });
+  await pushToUser(friend.id, {
+    title: '🔑 Wanna have a key time?',
+    body: `${me.username} is inviting you to have key time together.`,
+    data: { url: './?invites=1' },
+  });
+  res.json({ id: inv.id, status: inv.status, user: publicUser(friend) });
+});
+
+app.post('/api/invite/respond', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const { inviteId, accept } = req.body || {};
+  const inv = store.getInvite(inviteId);
+  if (!inv || inv.to !== me.id || inv.status !== 'pending') {
+    return res.status(404).json({ error: 'no such invite' });
+  }
+  inv.status = accept ? 'accepted' : 'declined';
+  await store.saveInvite(inv);
+  const sender = store.getUser(inv.from);
+  if (sender) {
+    await pushToUser(sender.id, accept
+      ? {
+          title: `🔑 ${me.username} is in!`,
+          body: `${me.username} accepted your key time invite.`,
+          data: { url: './?invites=1' },
+        }
+      : {
+          title: `${me.username} can't right now`,
+          body: `${me.username} declined your key time invite.`,
+          data: { url: './?invites=1' },
+        });
+  }
+  res.json({ status: inv.status });
+});
+
+app.post('/api/invite/dismiss', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const inv = store.getInvite(req.body?.inviteId);
+  if (!inv || (inv.from !== me.id && inv.to !== me.id)) {
+    return res.status(404).json({ error: 'no such invite' });
+  }
+  await store.removeInvite(inv.id);
+  res.json({ ok: true });
+});
+
 // --- Subscribe / settings ------------------------------------------------
 app.post('/api/subscribe', async (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
   const { id, subscription, intervalMs } = req.body || {};
   if (!subscription || !subscription.endpoint) {
     return res.status(400).json({ error: 'subscription required' });
   }
-  const rec = await store.upsertSubscription({ id, subscription, intervalMs });
+  const rec = await store.upsertSubscription({
+    id,
+    subscription,
+    intervalMs,
+    userId: user.id,
+  });
   res.json(publicState(rec));
 });
 

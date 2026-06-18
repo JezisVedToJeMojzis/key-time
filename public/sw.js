@@ -31,14 +31,23 @@ self.addEventListener('notificationclick', (event) => {
   const url = event.notification.data?.url || APP_URL;
 
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+    (async () => {
+      const clients = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
       for (const client of clients) {
         if ('focus' in client) {
-          client.postMessage({ type: 'keytime' });
-          return client.focus();
+          await client.focus();
+          // Navigate the existing tab to where this notification points
+          // (key-time banner, friend request, invite, …).
+          if ('navigate' in client) {
+            try { await client.navigate(url); } catch { /* cross-context */ }
+          }
+          return;
         }
       }
-      if (self.clients.openWindow) return self.clients.openWindow(url);
-    })
+      if (self.clients.openWindow) await self.clients.openWindow(url);
+    })()
   );
 });

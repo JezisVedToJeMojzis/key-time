@@ -1,9 +1,9 @@
-// Record store with two interchangeable backends:
+// Multi-collection store with two interchangeable backends:
 //   - Postgres (when DATABASE_URL is set) — for production (Render + Neon)
 //   - JSON file (otherwise)               — zero-config local dev
 //
-// Records are cached in memory, so reads stay synchronous. Mutations are
-// async because they write through to the backend.
+// Each collection is a table (Postgres) or a key in one JSON file. Items are
+// cached in memory, so reads stay synchronous; mutations write through (async).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,28 +11,37 @@ import crypto from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** @type {Map<string, object>} */
-let records = new Map();
+const COLLECTIONS = ['records', 'users', 'friendships', 'invites'];
+
+/** @type {Record<string, Map<string, object>>} */
+const data = Object.fromEntries(COLLECTIONS.map((c) => [c, new Map()]));
 
 // --- Backend selection ---------------------------------------------------
 let backend;
 
 function fileBackend() {
-  const DATA_FILE = path.join(__dirname, '..', 'data', 'records.json');
+  const DATA_FILE = path.join(__dirname, '..', 'data', 'store.json');
+  const writeAll = () => {
+    const out = {};
+    for (const c of COLLECTIONS) out[c] = [...data[c].values()];
+    fs.writeFileSync(DATA_FILE, JSON.stringify(out, null, 2));
+  };
   return {
     async init() {
       try {
-        return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+        const raw = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+        const out = {};
+        for (const c of COLLECTIONS) out[c] = raw[c] || [];
+        return out;
       } catch {
-        return [];
+        return Object.fromEntries(COLLECTIONS.map((c) => [c, []]));
       }
     },
-    // File backend rewrites the whole file (simple; fine at this scale).
     async put() {
-      fs.writeFileSync(DATA_FILE, JSON.stringify([...records.values()], null, 2));
+      writeAll();
     },
     async remove() {
-      fs.writeFileSync(DATA_FILE, JSON.stringify([...records.values()], null, 2));
+      writeAll();
     },
   };
 }
@@ -47,21 +56,25 @@ function pgBackend(databaseUrl) {
     });
     return {
       async init() {
-        await pool.query(
-          'CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, data JSONB NOT NULL)'
-        );
-        const { rows } = await pool.query('SELECT data FROM records');
-        return rows.map((r) => r.data);
+        const out = {};
+        for (const c of COLLECTIONS) {
+          await pool.query(
+            `CREATE TABLE IF NOT EXISTS ${c} (id TEXT PRIMARY KEY, data JSONB NOT NULL)`
+          );
+          const { rows } = await pool.query(`SELECT data FROM ${c}`);
+          out[c] = rows.map((r) => r.data);
+        }
+        return out;
       },
-      async put(rec) {
+      async put(collection, item) {
         await pool.query(
-          `INSERT INTO records (id, data) VALUES ($1, $2)
+          `INSERT INTO ${collection} (id, data) VALUES ($1, $2)
            ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
-          [rec.id, rec]
+          [item.id, item]
         );
       },
-      async remove(id) {
-        await pool.query('DELETE FROM records WHERE id = $1', [id]);
+      async remove(collection, id) {
+        await pool.query(`DELETE FROM ${collection} WHERE id = $1`, [id]);
       },
     };
   });
@@ -71,35 +84,51 @@ export async function init() {
   backend = process.env.DATABASE_URL
     ? await pgBackend(process.env.DATABASE_URL)
     : fileBackend();
-  const arr = await backend.init();
-  records = new Map(arr.map((r) => [r.id, r]));
+  const loaded = await backend.init();
+  for (const c of COLLECTIONS) {
+    data[c] = new Map((loaded[c] || []).map((item) => [item.id, item]));
+  }
   console.log(
-    `[store] using ${process.env.DATABASE_URL ? 'Postgres' : 'JSON file'} — ${records.size} record(s) loaded`
+    `[store] using ${process.env.DATABASE_URL ? 'Postgres' : 'JSON file'} — ` +
+      COLLECTIONS.map((c) => `${data[c].size} ${c}`).join(', ')
   );
 }
 
-const save = (rec) => backend.put(rec);
+// Generic write-through helpers.
+const save = (collection, item) => {
+  data[collection].set(item.id, item);
+  return backend.put(collection, item);
+};
+const drop = (collection, id) => {
+  const ok = data[collection].delete(id);
+  return ok ? backend.remove(collection, id).then(() => true) : Promise.resolve(false);
+};
 
-// --- Reads (sync, from cache) -------------------------------------------
+// =========================================================================
+// Records (device timers + push subscriptions)
+// =========================================================================
 export function getRecord(id) {
-  return records.get(id) || null;
+  return data.records.get(id) || null;
 }
 
 export function allRecords() {
-  return [...records.values()];
+  return [...data.records.values()];
 }
 
-// --- Mutations (async, write-through) -----------------------------------
+export function recordsByUser(userId) {
+  return [...data.records.values()].filter((r) => r.userId === userId);
+}
+
 /**
- * Create or update a subscription record. If `id` matches an existing record
- * it is updated; otherwise (or if missing) a new record is created.
+ * Create or update a subscription record. Stamps the owning userId so the
+ * server can later push to all of a user's devices.
  */
-export async function upsertSubscription({ id, subscription, intervalMs }) {
-  let rec = id ? records.get(id) : null;
+export async function upsertSubscription({ id, subscription, intervalMs, userId }) {
+  let rec = id ? data.records.get(id) : null;
 
   if (!rec) {
     // De-dupe by endpoint so re-subscribing the same browser reuses its record.
-    rec = [...records.values()].find(
+    rec = [...data.records.values()].find(
       (r) => r.subscription?.endpoint === subscription.endpoint
     );
   }
@@ -107,9 +136,11 @@ export async function upsertSubscription({ id, subscription, intervalMs }) {
   if (rec) {
     rec.subscription = subscription;
     if (typeof intervalMs === 'number') rec.intervalMs = intervalMs;
+    if (userId) rec.userId = userId;
   } else {
     rec = {
       id: crypto.randomUUID(),
+      userId: userId || null,
       subscription,
       intervalMs: typeof intervalMs === 'number' ? intervalMs : 60 * 60 * 1000,
       nextFireAt: null,
@@ -117,37 +148,36 @@ export async function upsertSubscription({ id, subscription, intervalMs }) {
       createdAt: Date.now(),
       history: [],
     };
-    records.set(rec.id, rec);
   }
-  await save(rec);
+  await save('records', rec);
   return rec;
 }
 
 export async function setInterval_(id, intervalMs) {
-  const rec = records.get(id);
+  const rec = data.records.get(id);
   if (!rec) return null;
   rec.intervalMs = intervalMs;
   // If a timer is already running, re-base it to the new interval from now.
   if (rec.running) rec.nextFireAt = Date.now() + intervalMs;
-  await save(rec);
+  await save('records', rec);
   return rec;
 }
 
 export async function startTimer(id) {
-  const rec = records.get(id);
+  const rec = data.records.get(id);
   if (!rec) return null;
   rec.running = true;
   rec.nextFireAt = Date.now() + rec.intervalMs;
-  await save(rec);
+  await save('records', rec);
   return rec;
 }
 
 export async function stopTimer(id) {
-  const rec = records.get(id);
+  const rec = data.records.get(id);
   if (!rec) return null;
   rec.running = false;
   rec.nextFireAt = null;
-  await save(rec);
+  await save('records', rec);
   return rec;
 }
 
@@ -157,28 +187,130 @@ export async function stopTimer(id) {
  * calls startTimer again.
  */
 export async function recordFire(id, firedAt = Date.now()) {
-  const rec = records.get(id);
+  const rec = data.records.get(id);
   if (!rec) return null;
   rec.history.push({ firedAt });
   rec.running = false;
   rec.nextFireAt = null;
-  await save(rec);
+  await save('records', rec);
   return rec;
 }
 
 /** End the session: clear history and stop the timer. Keeps interval + subscription. */
 export async function clearSession(id) {
-  const rec = records.get(id);
+  const rec = data.records.get(id);
   if (!rec) return null;
   rec.history = [];
   rec.running = false;
   rec.nextFireAt = null;
-  await save(rec);
+  await save('records', rec);
   return rec;
 }
 
 export async function removeRecord(id) {
-  const ok = records.delete(id);
-  if (ok) await backend.remove(id);
-  return ok;
+  return drop('records', id);
+}
+
+// =========================================================================
+// Users (accounts)
+// =========================================================================
+export function getUser(id) {
+  return data.users.get(id) || null;
+}
+
+export function getUserByUsername(username) {
+  const u = String(username).toLowerCase();
+  return [...data.users.values()].find((x) => x.username.toLowerCase() === u) || null;
+}
+
+export async function createUser({ username }) {
+  const user = {
+    id: crypto.randomUUID(),
+    username,
+    createdAt: Date.now(),
+  };
+  await save('users', user);
+  return user;
+}
+
+// =========================================================================
+// Friendships
+// =========================================================================
+export function getFriendship(id) {
+  return data.friendships.get(id) || null;
+}
+
+/** The friendship between two users, in either direction (or null). */
+export function friendshipBetween(a, b) {
+  return (
+    [...data.friendships.values()].find(
+      (f) =>
+        (f.requester === a && f.addressee === b) ||
+        (f.requester === b && f.addressee === a)
+    ) || null
+  );
+}
+
+/** All friendships (any status) that involve this user. */
+export function friendshipsFor(userId) {
+  return [...data.friendships.values()].filter(
+    (f) => f.requester === userId || f.addressee === userId
+  );
+}
+
+export async function createFriendship({ requester, addressee, status = 'pending' }) {
+  const f = {
+    id: crypto.randomUUID(),
+    requester,
+    addressee,
+    status,
+    createdAt: Date.now(),
+  };
+  await save('friendships', f);
+  return f;
+}
+
+export async function saveFriendship(f) {
+  await save('friendships', f);
+  return f;
+}
+
+export async function removeFriendship(id) {
+  return drop('friendships', id);
+}
+
+// =========================================================================
+// Invites ("wanna have a key time?")
+// =========================================================================
+export function getInvite(id) {
+  return data.invites.get(id) || null;
+}
+
+export function invitesFrom(userId) {
+  return [...data.invites.values()].filter((i) => i.from === userId);
+}
+
+export function invitesTo(userId) {
+  return [...data.invites.values()].filter((i) => i.to === userId);
+}
+
+export async function createInvite({ from, to }) {
+  const inv = {
+    id: crypto.randomUUID(),
+    from,
+    to,
+    status: 'pending',
+    createdAt: Date.now(),
+  };
+  await save('invites', inv);
+  return inv;
+}
+
+export async function saveInvite(inv) {
+  await save('invites', inv);
+  return inv;
+}
+
+export async function removeInvite(id) {
+  return drop('invites', id);
 }

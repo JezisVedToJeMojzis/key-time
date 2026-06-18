@@ -1,6 +1,6 @@
 // Web Push setup + the scheduler that fires "It's key time!" notifications.
 import webpush from 'web-push';
-import { allRecords, recordFire, removeRecord } from './store.js';
+import { allRecords, recordsByUser, recordFire, removeRecord } from './store.js';
 
 const {
   VAPID_PUBLIC_KEY,
@@ -22,14 +22,14 @@ export function getPublicKey() {
   return VAPID_PUBLIC_KEY || null;
 }
 
-const PAYLOAD = JSON.stringify({
+const KEY_TIME_PAYLOAD = JSON.stringify({
   title: "It's key time! 🔑",
   body: 'Open to start the next timer.',
 });
 
-async function sendTo(rec) {
+async function sendTo(rec, payload = KEY_TIME_PAYLOAD) {
   try {
-    await webpush.sendNotification(rec.subscription, PAYLOAD);
+    await webpush.sendNotification(rec.subscription, payload);
     return true;
   } catch (err) {
     // 404/410 mean the subscription is gone — clean it up.
@@ -41,6 +41,20 @@ async function sendTo(rec) {
     }
     return false;
   }
+}
+
+/**
+ * Send a notification to all of a user's devices.
+ * `payload` is { title, body, data? } — `data.url` controls where a click lands.
+ */
+export async function pushToUser(userId, payload) {
+  if (!vapidConfigured) return 0;
+  const body = JSON.stringify(payload);
+  let sent = 0;
+  for (const rec of recordsByUser(userId)) {
+    if (await sendTo(rec, body)) sent++;
+  }
+  return sent;
 }
 
 /**

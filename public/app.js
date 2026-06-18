@@ -30,26 +30,65 @@ const els = {
   repRange: $('rep-range'),
   reportDone: $('report-done'),
   connStatus: $('conn-status'),
+  authScreen: $('auth-screen'),
+  authForm: $('auth-form'),
+  authUsername: $('auth-username'),
+  authSubmit: $('auth-submit'),
+  authMsg: $('auth-msg'),
+  header: document.querySelector('.header'),
+  appBody: $('app-body'),
+  accountBar: $('account-bar'),
+  accountName: $('account-name'),
+  logoutBtn: $('logout-btn'),
+  friendsCard: $('friends-card'),
+  friendUsername: $('friend-username'),
+  friendAddBtn: $('friend-add-btn'),
+  friendMsg: $('friend-msg'),
+  requestsSection: $('requests-section'),
+  requestsList: $('requests-list'),
+  friendsList: $('friends-list'),
+  friendsEmpty: $('friends-empty'),
+  qrBox: $('qr-box'),
+  invitesIncomingSection: $('invites-incoming-section'),
+  invitesIncoming: $('invites-incoming'),
+  invitesOutgoingSection: $('invites-outgoing-section'),
+  invitesOutgoing: $('invites-outgoing'),
+  invitesEmpty: $('invites-empty'),
+  invitesCard: $('invites-card'),
 };
 
 const ID_KEY = 'keytime.id';
 const INTERVAL_KEY = 'keytime.intervalMs';
+const TOKEN_KEY = 'keytime.token';
 
 const state = {
   id: localStorage.getItem(ID_KEY) || null,
+  token: localStorage.getItem(TOKEN_KEY) || null,
+  user: null,
   config: null,
   server: null,       // last /api/state response
   clockOffset: 0,     // serverNow - clientNow
+  started: false,     // app (post-login) initialized once
 };
 
 // --- API helpers ---------------------------------------------------------
 async function api(path, method = 'GET', body) {
+  const headers = {};
+  if (body) headers['Content-Type'] = 'application/json';
+  if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
   const res = await fetch(path, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new Error(`${path} -> ${res.status}`);
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json()).error || ''; } catch {}
+    const err = new Error(`${path} -> ${res.status}`);
+    err.status = res.status;
+    err.detail = detail;
+    throw err;
+  }
   return res.json();
 }
 
@@ -334,6 +373,182 @@ function showReport(report) {
   els.reportCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+// --- Friends + QR --------------------------------------------------------
+function renderQR() {
+  if (!state.user || typeof qrcode === 'undefined') return;
+  const url = `${location.origin}${location.pathname}?addFriend=${encodeURIComponent(state.user.username)}`;
+  const qr = qrcode(0, 'M');
+  qr.addData(url);
+  qr.make();
+  els.qrBox.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 1, scalable: true });
+}
+
+async function refreshFriends() {
+  if (!state.token) return;
+  try {
+    renderFriends(await api('/api/friends'));
+  } catch {
+    /* ignore transient errors */
+  }
+}
+
+function friendRow(username, tagText, actions) {
+  const li = document.createElement('li');
+  const name = document.createElement('span');
+  name.className = 'name';
+  name.textContent = username;
+  li.append(name);
+  if (tagText) {
+    const tag = document.createElement('span');
+    tag.className = 'gap';
+    tag.textContent = tagText;
+    li.append(tag);
+  }
+  if (actions) li.append(actions);
+  return li;
+}
+
+function renderFriends({ friends, incoming, outgoing }) {
+  els.requestsList.innerHTML = '';
+  els.requestsSection.classList.toggle('hidden', incoming.length === 0);
+  incoming.forEach((r) => {
+    const actions = document.createElement('span');
+    actions.className = 'actions';
+    const acc = document.createElement('button');
+    acc.className = 'btn btn-accept';
+    acc.textContent = 'Accept';
+    acc.onclick = () => respondFriend(r.friendshipId, true);
+    const dec = document.createElement('button');
+    dec.className = 'btn btn-decline';
+    dec.textContent = 'Decline';
+    dec.onclick = () => respondFriend(r.friendshipId, false);
+    actions.append(acc, dec);
+    els.requestsList.append(friendRow(r.user.username, '', actions));
+  });
+
+  els.friendsList.innerHTML = '';
+  friends.forEach((fr) => {
+    const actions = document.createElement('span');
+    actions.className = 'actions';
+    const invite = document.createElement('button');
+    invite.className = 'btn btn-secondary';
+    invite.textContent = '🔑 Invite';
+    invite.onclick = () => sendInvite(fr.user.id, fr.user.username);
+    actions.append(invite);
+    els.friendsList.append(friendRow(fr.user.username, '', actions));
+  });
+  outgoing.forEach((o) => els.friendsList.append(friendRow(o.user.username, 'requested')));
+  els.friendsEmpty.classList.toggle('hidden', friends.length + outgoing.length > 0);
+}
+
+async function addFriend(username) {
+  const name = (username ?? els.friendUsername.value).trim();
+  if (!name) return;
+  els.friendMsg.textContent = '';
+  try {
+    const r = await api('/api/friends/request', 'POST', { username: name });
+    els.friendUsername.value = '';
+    els.friendMsg.textContent =
+      r.status === 'accepted'
+        ? `You're now friends with ${r.user.username}.`
+        : `Request sent to ${r.user.username}.`;
+    await refreshFriends();
+  } catch (err) {
+    els.friendMsg.textContent = err.detail || 'Could not add that user.';
+  }
+  setTimeout(() => { els.friendMsg.textContent = ''; }, 4000);
+}
+
+async function respondFriend(id, accept) {
+  try {
+    await api('/api/friends/respond', 'POST', { friendshipId: id, accept });
+    await refreshFriends();
+  } catch {
+    /* ignore */
+  }
+}
+
+// --- Invites -------------------------------------------------------------
+async function refreshInvites() {
+  if (!state.token) return;
+  try {
+    renderInvites(await api('/api/invites'));
+  } catch {
+    /* ignore transient errors */
+  }
+}
+
+const INVITE_STATUS = { pending: 'waiting…', accepted: 'accepted ✓', declined: 'declined' };
+
+function renderInvites({ incoming, outgoing }) {
+  els.invitesIncoming.innerHTML = '';
+  els.invitesIncomingSection.classList.toggle('hidden', incoming.length === 0);
+  incoming.forEach((inv) => {
+    const actions = document.createElement('span');
+    actions.className = 'actions';
+    const acc = document.createElement('button');
+    acc.className = 'btn btn-accept';
+    acc.textContent = "I'm in";
+    acc.onclick = () => respondInvite(inv.id, true);
+    const dec = document.createElement('button');
+    dec.className = 'btn btn-decline';
+    dec.textContent = 'Decline';
+    dec.onclick = () => respondInvite(inv.id, false);
+    actions.append(acc, dec);
+    els.invitesIncoming.append(friendRow(inv.user.username, '', actions));
+  });
+
+  els.invitesOutgoing.innerHTML = '';
+  els.invitesOutgoingSection.classList.toggle('hidden', outgoing.length === 0);
+  outgoing.forEach((inv) => {
+    const actions = document.createElement('span');
+    actions.className = 'actions';
+    const dismiss = document.createElement('button');
+    dismiss.className = 'btn btn-decline';
+    dismiss.textContent = '✕';
+    dismiss.setAttribute('aria-label', 'Dismiss');
+    dismiss.onclick = () => dismissInvite(inv.id);
+    actions.append(dismiss);
+    els.invitesOutgoing.append(
+      friendRow(inv.user.username, INVITE_STATUS[inv.status] || inv.status, actions)
+    );
+  });
+
+  els.invitesEmpty.classList.toggle('hidden', incoming.length + outgoing.length > 0);
+  // Whole card only appears when there's something to show.
+  els.invitesCard.classList.toggle('hidden', incoming.length + outgoing.length === 0);
+}
+
+async function sendInvite(userId, username) {
+  els.friendMsg.textContent = '';
+  try {
+    await api('/api/invite', 'POST', { toUserId: userId });
+    els.friendMsg.textContent = `Key time invite sent to ${username}.`;
+    await refreshInvites();
+  } catch (err) {
+    els.friendMsg.textContent = err.detail || 'Could not send invite.';
+  }
+  setTimeout(() => { els.friendMsg.textContent = ''; }, 4000);
+}
+
+async function respondInvite(id, accept) {
+  try {
+    await api('/api/invite/respond', 'POST', { inviteId: id, accept });
+    await refreshInvites();
+  } catch {
+    /* ignore */
+  }
+}
+
+async function dismissInvite(id) {
+  try {
+    await api('/api/invite/dismiss', 'POST', { inviteId: id });
+    await refreshInvites();
+  } catch {
+    /* ignore */
+  }
+}
+
 // --- Polling -------------------------------------------------------------
 async function refreshState() {
   if (!state.id) return;
@@ -353,7 +568,92 @@ async function refreshState() {
   }
 }
 
+// --- Auth (pick a username; bound to this device) ------------------------
+function showAuth() {
+  els.authScreen.classList.remove('hidden');
+  els.appBody.classList.add('hidden');
+  els.accountBar.classList.add('hidden');
+  els.header.classList.add('hidden'); // welcome card carries the branding
+}
+
+function showApp() {
+  els.authScreen.classList.add('hidden');
+  els.appBody.classList.remove('hidden');
+  els.accountBar.classList.remove('hidden');
+  els.header.classList.remove('hidden');
+  els.accountName.textContent = state.user?.username || '';
+}
+
+async function claimUsername(e) {
+  e.preventDefault();
+  const username = els.authUsername.value.trim();
+  els.authMsg.textContent = '';
+  els.authSubmit.disabled = true;
+  try {
+    const { token, user } = await api('/api/register', 'POST', { username });
+    state.token = token;
+    state.user = user;
+    localStorage.setItem(TOKEN_KEY, token);
+    showApp();
+    await startApp();
+  } catch (err) {
+    els.authMsg.textContent = err.detail || 'Something went wrong. Try again.';
+  } finally {
+    els.authSubmit.disabled = false;
+  }
+}
+
+function logout() {
+  if (!confirm('Log out? This username is tied to this device — without it you may not be able to reclaim the name.')) return;
+  localStorage.removeItem(TOKEN_KEY);
+  state.token = null;
+  state.user = null;
+  location.reload();
+}
+
 // --- Init ----------------------------------------------------------------
+async function startApp() {
+  if (state.started) return;
+  state.started = true;
+
+  const params = new URLSearchParams(location.search);
+  if (params.get('keytime') === '1') showBanner();
+
+  await ensureSubscription();
+  await refreshState();
+  renderQR();
+  await refreshFriends();
+  await refreshInvites();
+  render();
+
+  // Deep links: ?addFriend=<username> (scanned QR), ?friends=1, ?invites=1.
+  const pendingFriend = params.get('addFriend');
+  if (pendingFriend && pendingFriend !== state.user?.username) {
+    await addFriend(pendingFriend);
+  }
+  if (pendingFriend || params.get('friends') === '1') {
+    els.friendsCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  if (params.get('invites') === '1') {
+    els.invitesCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  if (pendingFriend || params.get('friends') || params.get('invites')) {
+    history.replaceState(null, '', './');
+  }
+
+  // sync from server periodically; tick the countdown every second
+  setInterval(refreshState, 10000);
+  setInterval(() => { refreshFriends(); refreshInvites(); }, 15000);
+  setInterval(updateCountdown, 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      refreshState();
+      refreshFriends();
+      refreshInvites();
+    }
+  });
+}
+
 async function init() {
   els.startBtn.addEventListener('click', startTimer);
   els.fireBtn.addEventListener('click', fireNow);
@@ -363,12 +663,26 @@ async function init() {
   els.bannerStart.addEventListener('click', startTimer);
   els.saveSettings.addEventListener('click', saveSettings);
   els.enableBtn?.addEventListener('click', enableNotifications);
+  els.authForm.addEventListener('submit', claimUsername);
+  els.logoutBtn.addEventListener('click', logout);
+  els.friendAddBtn.addEventListener('click', () => addFriend());
+  els.friendUsername.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addFriend();
+  });
+
+  // Collapsible cards (Settings, Friends) — remember state per card.
+  document.querySelectorAll('.card-collapsible').forEach((card) => {
+    const key = `keytime.collapse.${card.id}`;
+    if (localStorage.getItem(key) === '1') card.classList.add('collapsed');
+    card.querySelector('h2').addEventListener('click', () => {
+      const collapsed = card.classList.toggle('collapsed');
+      localStorage.setItem(key, collapsed ? '1' : '0');
+    });
+  });
 
   // restore saved interval into the form
   const savedInterval = Number(localStorage.getItem(INTERVAL_KEY));
   if (savedInterval) fillIntervalInputs(savedInterval);
-
-  if (new URLSearchParams(location.search).get('keytime') === '1') showBanner();
 
   await registerSW();
   try {
@@ -377,16 +691,20 @@ async function init() {
     els.connStatus.textContent = 'server offline';
   }
 
-  await ensureSubscription();
-  await refreshState();
-  render();
-
-  // sync from server periodically; tick the countdown every second
-  setInterval(refreshState, 10000);
-  setInterval(updateCountdown, 1000);
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') refreshState();
-  });
+  // Gate on auth: a stored token must still be valid.
+  if (state.token) {
+    try {
+      const { user } = await api('/api/me');
+      state.user = user;
+      showApp();
+      await startApp();
+      return;
+    } catch {
+      localStorage.removeItem(TOKEN_KEY);
+      state.token = null;
+    }
+  }
+  showAuth();
 }
 
 init();
