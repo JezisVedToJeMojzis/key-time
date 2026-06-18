@@ -16,6 +16,8 @@ const els = {
   saveSettings: $('save-settings'),
   settingsMsg: $('settings-msg'),
   statCount: $('stat-count'),
+  statSession: $('stat-session'),
+  statAvg: $('stat-avg'),
   statFirst: $('stat-first'),
   statLast: $('stat-last'),
   historyList: $('history-list'),
@@ -198,6 +200,16 @@ function renderStats() {
     els.statLast.textContent = '—';
   }
 
+  // Average gap between consecutive key times.
+  if (hist.length > 1) {
+    const span = hist[hist.length - 1].firedAt - hist[0].firedAt;
+    els.statAvg.textContent = fmtLongDuration(Math.round(span / (hist.length - 1)));
+  } else {
+    els.statAvg.textContent = '—';
+  }
+
+  updateSessionTime();
+
   els.historyList.innerHTML = '';
   // newest first
   [...hist].reverse().forEach((h, i) => {
@@ -222,6 +234,17 @@ function updateCountdown() {
     els.countdown.textContent = remaining > 0 ? fmtDuration(remaining) : 'firing…';
   } else {
     els.countdown.textContent = '--:--:--';
+  }
+  updateSessionTime();
+}
+
+// Elapsed time since the first key time of the current session (ticks live).
+function updateSessionTime() {
+  const hist = state.server?.history || [];
+  if (hist.length) {
+    els.statSession.textContent = fmtLongDuration((Date.now() + state.clockOffset) - hist[0].firedAt);
+  } else {
+    els.statSession.textContent = '—';
   }
 }
 
