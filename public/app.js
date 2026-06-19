@@ -571,7 +571,11 @@ function renderFriends({ friends, incoming, outgoing }) {
     invite.className = 'btn btn-secondary';
     invite.textContent = '🔑 Invite';
     invite.onclick = () => openInviteModal(fr.user.id);
-    actions.append(invite);
+    const remove = document.createElement('button');
+    remove.className = 'btn btn-decline';
+    remove.textContent = 'Remove';
+    remove.onclick = () => removeFriend(fr.user.id, fr.user.username);
+    actions.append(invite, remove);
     els.friendsList.append(friendRow(fr.user.username, '', actions));
   });
   outgoing.forEach((o) => els.friendsList.append(friendRow(o.user.username, 'requested')));
@@ -602,6 +606,18 @@ async function respondFriend(id, accept) {
     await refreshFriends();
   } catch {
     /* ignore */
+  }
+}
+
+async function removeFriend(userId, username) {
+  if (!confirm(`Remove ${username} from your friends?`)) return;
+  try {
+    await api('/api/friends/remove', 'POST', { userId });
+    await refreshFriends();
+    await refreshInvites();
+  } catch {
+    els.friendMsg.textContent = 'Could not remove that friend.';
+    setTimeout(() => { els.friendMsg.textContent = ''; }, 4000);
   }
 }
 
@@ -651,28 +667,38 @@ function inviteItem(inv, { incoming }) {
   times.className = 'invite-times';
   let t = `sent ${fmtTime(inv.createdAt)}`;
   if (inv.respondedAt) {
-    t += ` · ${incoming ? 'you ' : ''}${inv.status} ${fmtTime(inv.respondedAt)}`;
+    const who = inv.respondedBy && inv.respondedBy === state.user?.id ? 'you' : inv.user.username;
+    t += ` · ${who} ${inv.status} ${fmtTime(inv.respondedAt)}`;
   }
   times.textContent = t;
   li.append(times);
 
-  // Action buttons (incoming only). Once accepted you can still back out, so
-  // only "Decline" remains; once declined there's nothing left to do.
-  if (incoming && inv.status !== 'declined') {
+  // Action buttons. Once an invite is declined there's nothing left to do.
+  if (inv.status !== 'declined') {
     const actions = document.createElement('div');
     actions.className = 'actions';
-    if (inv.status !== 'accepted') {
-      const acc = document.createElement('button');
-      acc.className = 'btn btn-accept';
-      acc.textContent = "I'm in";
-      acc.onclick = () => respondInvite(inv.id, true);
-      actions.append(acc);
+    if (incoming) {
+      // Recipient: accept (unless already in) and/or decline.
+      if (inv.status !== 'accepted') {
+        const acc = document.createElement('button');
+        acc.className = 'btn btn-accept';
+        acc.textContent = "I'm in";
+        acc.onclick = () => respondInvite(inv.id, true);
+        actions.append(acc);
+      }
+      const dec = document.createElement('button');
+      dec.className = 'btn btn-decline';
+      dec.textContent = 'Decline';
+      dec.onclick = () => respondInvite(inv.id, false);
+      actions.append(dec);
+    } else {
+      // Sender: cancel the invite (stays visible to them as "declined").
+      const cancel = document.createElement('button');
+      cancel.className = 'btn btn-decline';
+      cancel.textContent = 'Cancel';
+      cancel.onclick = () => respondInvite(inv.id, false);
+      actions.append(cancel);
     }
-    const dec = document.createElement('button');
-    dec.className = 'btn btn-decline';
-    dec.textContent = 'Decline';
-    dec.onclick = () => respondInvite(inv.id, false);
-    actions.append(dec);
     li.append(actions);
   }
 

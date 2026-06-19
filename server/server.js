@@ -194,10 +194,22 @@ app.post('/api/friends/respond', async (req, res) => {
   res.json({ status: 'declined' });
 });
 
+app.post('/api/friends/remove', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const other = store.getUser(req.body?.userId);
+  if (!other) return res.status(404).json({ error: 'no such user' });
+  const f = store.friendshipBetween(me.id, other.id);
+  if (!f) return res.status(404).json({ error: 'not friends' });
+  await store.removeFriendship(f.id);
+  res.json({ ok: true });
+});
+
 // --- Invites ("wanna have a key time?") ----------------------------------
 app.get('/api/invites', (req, res) => {
   const me = requireUser(req, res);
   if (!me) return;
+  const visible = (i) => !(i.hiddenFor || []).includes(me.id);
   const shape = (i, otherId) => {
     const u = store.getUser(otherId);
     return u
@@ -207,12 +219,13 @@ app.get('/api/invites', (req, res) => {
           message: i.message || '',
           createdAt: i.createdAt,
           respondedAt: i.respondedAt || null,
+          respondedBy: i.respondedBy || null,
           user: publicUser(u),
         }
       : null;
   };
-  const incoming = store.invitesTo(me.id).map((i) => shape(i, i.from)).filter(Boolean);
-  const outgoing = store.invitesFrom(me.id).map((i) => shape(i, i.to)).filter(Boolean);
+  const incoming = store.invitesTo(me.id).filter(visible).map((i) => shape(i, i.from)).filter(Boolean);
+  const outgoing = store.invitesFrom(me.id).filter(visible).map((i) => shape(i, i.to)).filter(Boolean);
   res.json({ incoming, outgoing });
 });
 
@@ -247,27 +260,31 @@ app.post('/api/invite/respond', async (req, res) => {
   if (!me) return;
   const { inviteId, accept } = req.body || {};
   const inv = store.getInvite(inviteId);
-  // Recipient can respond any time the invite exists — including changing
-  // their mind after a previous accept/decline.
-  if (!inv || inv.to !== me.id) {
+  // Either party can respond any time the invite exists. The recipient can
+  // accept or decline (and change their mind); the sender can only cancel
+  // (decline) — which keeps the invite visible to the recipient as "declined".
+  if (!inv || (inv.to !== me.id && inv.from !== me.id)) {
     return res.status(404).json({ error: 'no such invite' });
   }
-  inv.status = accept ? 'accepted' : 'declined';
+  const isRecipient = inv.to === me.id;
+  inv.status = isRecipient && accept ? 'accepted' : 'declined';
   inv.respondedAt = Date.now();
+  inv.respondedBy = me.id;
   await store.saveInvite(inv);
-  const sender = store.getUser(inv.from);
-  if (sender) {
-    await pushToUser(sender.id, accept
-      ? {
-          title: `🔑 ${me.username} is in!`,
-          body: `${me.username} accepted your key time invite.`,
-          data: { url: './?invites=1' },
-        }
-      : {
-          title: `${me.username} can't right now`,
-          body: `${me.username} declined your key time invite.`,
-          data: { url: './?invites=1' },
-        });
+
+  const otherId = isRecipient ? inv.from : inv.to;
+  const other = store.getUser(otherId);
+  if (other) {
+    let payload;
+    if (isRecipient) {
+      payload = accept
+        ? { title: `🔑 ${me.username} is in!`, body: `${me.username} accepted your key time invite.` }
+        : { title: `${me.username} can't right now`, body: `${me.username} declined your key time invite.` };
+    } else {
+      payload = { title: `${me.username} cancelled`, body: `${me.username} cancelled the key time invite.` };
+    }
+    payload.data = { url: './?invites=1' };
+    await pushToUser(other.id, payload);
   }
   res.json({ status: inv.status });
 });
@@ -279,7 +296,14 @@ app.post('/api/invite/dismiss', async (req, res) => {
   if (!inv || (inv.from !== me.id && inv.to !== me.id)) {
     return res.status(404).json({ error: 'no such invite' });
   }
-  await store.removeInvite(inv.id);
+  // Hide from my own list only — the other party keeps seeing it. Once both
+  // sides have dismissed it, drop the record entirely.
+  inv.hiddenFor = [...new Set([...(inv.hiddenFor || []), me.id])];
+  if (inv.hiddenFor.includes(inv.from) && inv.hiddenFor.includes(inv.to)) {
+    await store.removeInvite(inv.id);
+  } else {
+    await store.saveInvite(inv);
+  }
   res.json({ ok: true });
 });
 

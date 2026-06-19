@@ -398,20 +398,55 @@ html, body {
 .modal-actions { display: flex; gap: 10px; }
 .modal-actions .btn { flex: 1; }
 
-/* Invite friend picker (multi-select) */
-.invite-pick-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); margin: 0 0 8px; }
-.invite-friends { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; max-height: 200px; overflow-y: auto; }
-.invite-pick {
+/* Invite friend picker (multi-select chips) */
+.invite-pick-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); margin: 0 0 10px; }
+.invite-friends {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--bg-card-2);
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-size: 0.95rem;
-  cursor: pointer;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+  max-height: 180px;
+  overflow-y: auto;
 }
-.invite-pick input { width: 18px; height: 18px; accent-color: var(--accent); flex: 0 0 auto; }
+.invite-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-card-2);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 8px 14px 8px 10px;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.invite-pick input { display: none; }
+.invite-pick::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.invite-pick:has(input:checked) {
+  background: rgba(79, 70, 229, 0.18);
+  border-color: var(--accent);
+  color: var(--text);
+}
+.invite-pick:has(input:checked)::before {
+  content: "✓";
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
 
 /* Session history list */
 .sessions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }

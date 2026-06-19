@@ -320,6 +320,8 @@ export async function createInvite({ from, to, message = '' }) {
     status: 'pending',
     createdAt: Date.now(),
     respondedAt: null,
+    respondedBy: null,
+    hiddenFor: [], // userIds who dismissed it from their own list
   };
   await save('invites', inv);
   return inv;
