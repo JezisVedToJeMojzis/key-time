@@ -38,29 +38,34 @@ html, body {
 #invites-card { order: -3; }
 #keytime-banner { order: -2; }
 #report-card { order: -1; }
+.tabs { order: 0; }
 #status-card { order: 1; }
 #stats-card { order: 2; }
-#settings-card { order: 3; }
 #friends-card { order: 4; }
+#settings-card { order: 5; }
 
-/* Collapsible cards (Settings, Friends) */
-.card-collapsible > h2 {
-  cursor: pointer;
+/* Top tab menu */
+.tabs {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  user-select: none;
-  margin-bottom: 14px;
+  gap: 6px;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 6px;
 }
-.card-collapsible > h2::after {
-  content: '▾';
-  font-size: 0.85em;
+.tab {
+  flex: 1;
+  border: none;
+  background: transparent;
   color: var(--text-dim);
-  transition: transform 0.15s;
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 10px;
+  border-radius: 11px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
-.card-collapsible.collapsed > h2 { margin-bottom: 0; }
-.card-collapsible.collapsed > h2::after { transform: rotate(-90deg); }
-.card-collapsible.collapsed > :not(h2) { display: none; }
+.tab:hover { color: var(--text); }
+.tab.active { background: var(--accent); color: #fff; }
 
 .header { text-align: center; margin-top: 8px; }
 .header h1 { margin: 0; font-size: 2rem; letter-spacing: -0.02em; }
@@ -166,6 +171,26 @@ html, body {
   margin: 18px 0;
 }
 .status-actions { display: flex; gap: 10px; }
+
+/* Timer interval toggle (in status card) */
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 14px;
+  padding: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.settings-toggle:hover { color: var(--text); }
+.settings-toggle .chev { transition: transform 0.15s; }
+.settings-toggle.open .chev { transform: rotate(180deg); }
+#interval-editor { margin-top: 8px; }
 
 /* Buttons */
 .btn {
@@ -296,6 +321,73 @@ html, body {
   line-height: 0;
 }
 .qr-box svg, .qr-box img { width: 200px; height: 200px; display: block; }
+
+/* Invite items (richer rows with note + timestamps) */
+.invite-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-card-2);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.invite-item .invite-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.invite-item .name { font-weight: 600; }
+.invite-status { font-size: 0.78rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; }
+.invite-status.pending { background: rgba(245,158,11,0.15); color: var(--warn); }
+.invite-status.accepted { background: rgba(34,197,94,0.15); color: var(--ok); }
+.invite-status.declined { background: rgba(239,68,68,0.15); color: var(--danger); }
+.invite-note { font-size: 0.9rem; font-style: italic; color: var(--text); }
+.invite-times { font-size: 0.75rem; color: var(--text-dim); }
+.invite-item .actions { display: flex; gap: 8px; margin-top: 2px; }
+.invite-item .actions .btn { flex: 0 0 auto; padding: 7px 12px; font-size: 0.85rem; }
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+.modal {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 22px;
+  width: 100%;
+  max-width: 380px;
+}
+.modal h3 { margin: 0 0 14px; font-size: 1.1rem; }
+.modal input {
+  width: 100%;
+  background: var(--bg-card-2);
+  border: 1px solid transparent;
+  color: var(--text);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 1rem;
+  margin-bottom: 16px;
+}
+.modal input:focus { outline: none; border-color: var(--accent); }
+.modal-actions { display: flex; gap: 10px; }
+.modal-actions .btn { flex: 1; }
+
+/* Session history list */
+.sessions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.sessions li {
+  background: var(--bg-card-2);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.sessions .s-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.sessions .s-title { font-weight: 600; }
+.sessions .s-title.untitled { color: var(--text-dim); font-weight: 500; font-style: italic; }
+.sessions .s-date { font-size: 0.75rem; color: var(--text-dim); white-space: nowrap; }
+.sessions .s-stats { font-size: 0.82rem; color: var(--text-dim); margin-top: 6px; }
+.sessions .s-stats b { color: var(--text); font-weight: 600; }
 
 /* Session report */
 .report { border: 1px solid var(--accent); }

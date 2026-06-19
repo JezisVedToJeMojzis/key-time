@@ -47,24 +47,74 @@ function requireUser(req, res) {
 
 const publicUser = (u) => ({ id: u.id, username: u.username });
 
-// Claim a unique username. No password — identity is bound to this device via
-// the returned token. Keep the token and you stay signed in on this device.
+function validPassword(p) {
+  return typeof p === 'string' && p.length >= 6;
+}
+
+// Create an account: unique username + password (so it works on any device).
 app.post('/api/register', async (req, res) => {
   const username = String(req.body?.username || '').trim().replace(/\s+/g, ' ');
+  const { password } = req.body || {};
   if (!auth.validUsername(username)) {
-    return res.status(400).json({ error: "3–20 characters: letters, digits, spaces, and _ . ' -" });
+    return res.status(400).json({ error: "username: 3–20 chars — letters, digits, spaces, _ . ' -" });
+  }
+  if (!validPassword(password)) {
+    return res.status(400).json({ error: 'password must be at least 6 characters' });
   }
   if (store.getUserByUsername(username)) {
     return res.status(409).json({ error: 'that username is taken' });
   }
-  const user = await store.createUser({ username });
+  const user = await store.createUser({
+    username,
+    passwordHash: auth.hashPassword(password),
+  });
   res.json({ token: auth.signToken(user.id), user: publicUser(user) });
+});
+
+// Log in from any device with username + password.
+app.post('/api/login', (req, res) => {
+  const username = String(req.body?.username || '').trim().replace(/\s+/g, ' ');
+  const { password } = req.body || {};
+  const user = store.getUserByUsername(username);
+  if (!user || !user.passwordHash || !auth.verifyPassword(password || '', user.passwordHash)) {
+    return res.status(401).json({ error: 'wrong username or password' });
+  }
+  res.json({ token: auth.signToken(user.id), user: publicUser(user) });
+});
+
+// Change the signed-in account's username (must stay unique).
+app.post('/api/username', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const username = String(req.body?.username || '').trim().replace(/\s+/g, ' ');
+  if (!auth.validUsername(username)) {
+    return res.status(400).json({ error: "username: 3–20 chars — letters, digits, spaces, _ . ' -" });
+  }
+  const existing = store.getUserByUsername(username);
+  if (existing && existing.id !== me.id) {
+    return res.status(409).json({ error: 'that username is taken' });
+  }
+  const updated = await store.setUsername(me.id, username);
+  res.json({ user: publicUser(updated) });
+});
+
+// Set or change the password for the signed-in account (lets device-only
+// accounts add a password so they can log in elsewhere).
+app.post('/api/password', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const { password } = req.body || {};
+  if (!validPassword(password)) {
+    return res.status(400).json({ error: 'password must be at least 6 characters' });
+  }
+  await store.setUserPassword(me.id, auth.hashPassword(password));
+  res.json({ ok: true });
 });
 
 app.get('/api/me', (req, res) => {
   const user = requireUser(req, res);
   if (!user) return;
-  res.json({ user: publicUser(user) });
+  res.json({ user: publicUser(user), hasPassword: Boolean(user.passwordHash) });
 });
 
 // --- Friends -------------------------------------------------------------
@@ -148,19 +198,21 @@ app.post('/api/friends/respond', async (req, res) => {
 app.get('/api/invites', (req, res) => {
   const me = requireUser(req, res);
   if (!me) return;
-  const incoming = store
-    .invitesTo(me.id)
-    .filter((i) => i.status === 'pending')
-    .map((i) => ({ id: i.id, user: store.getUser(i.from) }))
-    .filter((i) => i.user)
-    .map((i) => ({ id: i.id, user: publicUser(i.user) }));
-  const outgoing = store
-    .invitesFrom(me.id)
-    .map((i) => {
-      const u = store.getUser(i.to);
-      return u ? { id: i.id, status: i.status, user: publicUser(u) } : null;
-    })
-    .filter(Boolean);
+  const shape = (i, otherId) => {
+    const u = store.getUser(otherId);
+    return u
+      ? {
+          id: i.id,
+          status: i.status,
+          message: i.message || '',
+          createdAt: i.createdAt,
+          respondedAt: i.respondedAt || null,
+          user: publicUser(u),
+        }
+      : null;
+  };
+  const incoming = store.invitesTo(me.id).map((i) => shape(i, i.from)).filter(Boolean);
+  const outgoing = store.invitesFrom(me.id).map((i) => shape(i, i.to)).filter(Boolean);
   res.json({ incoming, outgoing });
 });
 
@@ -178,10 +230,13 @@ app.post('/api/invite', async (req, res) => {
     .find((i) => i.to === friend.id && i.status === 'pending');
   if (dup) return res.status(409).json({ error: 'invite already pending' });
 
-  const inv = await store.createInvite({ from: me.id, to: friend.id });
+  const message = String(req.body?.message || '').trim().slice(0, 140);
+  const inv = await store.createInvite({ from: me.id, to: friend.id, message });
   await pushToUser(friend.id, {
     title: '🔑 Wanna have a key time?',
-    body: `${me.username} is inviting you to have key time together.`,
+    body: message
+      ? `${me.username}: ${message}`
+      : `${me.username} is inviting you to have key time together.`,
     data: { url: './?invites=1' },
   });
   res.json({ id: inv.id, status: inv.status, user: publicUser(friend) });
@@ -192,10 +247,13 @@ app.post('/api/invite/respond', async (req, res) => {
   if (!me) return;
   const { inviteId, accept } = req.body || {};
   const inv = store.getInvite(inviteId);
-  if (!inv || inv.to !== me.id || inv.status !== 'pending') {
+  // Recipient can respond any time the invite exists — including changing
+  // their mind after a previous accept/decline.
+  if (!inv || inv.to !== me.id) {
     return res.status(404).json({ error: 'no such invite' });
   }
   inv.status = accept ? 'accepted' : 'declined';
+  inv.respondedAt = Date.now();
   await store.saveInvite(inv);
   const sender = store.getUser(inv.from);
   if (sender) {
@@ -294,8 +352,24 @@ app.post('/api/reset', async (req, res) => {
   const rec = store.getRecord(req.body?.id);
   if (!rec) return res.status(404).json({ error: 'not found' });
   const report = buildReport(rec.history);
+  // Save the finished session to history (only if anything actually happened).
+  if (report.count > 0 && rec.userId) {
+    const description = String(req.body?.description || '').trim().slice(0, 120);
+    await store.createSession({
+      userId: rec.userId,
+      description,
+      endedAt: Date.now(),
+      ...report,
+    });
+  }
   const cleared = await store.clearSession(rec.id);
   res.json({ report, state: publicState(cleared) });
+});
+
+app.get('/api/sessions', (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  res.json({ sessions: store.sessionsFor(me.id) });
 });
 
 function buildReport(history) {

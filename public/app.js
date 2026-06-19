@@ -15,6 +15,9 @@ const els = {
   intervalUnit: $('interval-unit'),
   saveSettings: $('save-settings'),
   settingsMsg: $('settings-msg'),
+  settingsToggle: $('settings-toggle'),
+  intervalEditor: $('interval-editor'),
+  intervalSummary: $('interval-summary'),
   statCount: $('stat-count'),
   statSession: $('stat-session'),
   statAvg: $('stat-avg'),
@@ -29,12 +32,32 @@ const els = {
   repAvg: $('rep-avg'),
   repRange: $('rep-range'),
   reportDone: $('report-done'),
+  sessionsList: $('sessions-list'),
+  sessionsEmpty: $('sessions-empty'),
+  endsessionModal: $('endsession-modal'),
+  endsessionDesc: $('endsession-desc'),
+  endsessionCancel: $('endsession-cancel'),
+  endsessionConfirm: $('endsession-confirm'),
   connStatus: $('conn-status'),
   authScreen: $('auth-screen'),
   authForm: $('auth-form'),
+  authTitle: $('auth-title'),
+  authSub: $('auth-sub'),
   authUsername: $('auth-username'),
+  authPassword: $('auth-password'),
   authSubmit: $('auth-submit'),
   authMsg: $('auth-msg'),
+  authSwitch: $('auth-switch'),
+  authSwitchText: $('auth-switch-text'),
+  nameInput: $('name-input'),
+  nameSave: $('name-save'),
+  nameMsg: $('name-msg'),
+  pwHeading: $('pw-heading'),
+  pwHint: $('pw-hint'),
+  pwInput: $('pw-input'),
+  pwSave: $('pw-save'),
+  pwMsg: $('pw-msg'),
+  tabs: $('tabs'),
   header: document.querySelector('.header'),
   appBody: $('app-body'),
   accountBar: $('account-bar'),
@@ -55,6 +78,11 @@ const els = {
   invitesOutgoing: $('invites-outgoing'),
   invitesEmpty: $('invites-empty'),
   invitesCard: $('invites-card'),
+  inviteModal: $('invite-modal'),
+  inviteModalTitle: $('invite-modal-title'),
+  inviteMessage: $('invite-message'),
+  inviteCancel: $('invite-cancel'),
+  inviteSend: $('invite-send'),
 };
 
 const ID_KEY = 'keytime.id';
@@ -65,7 +93,10 @@ const state = {
   id: localStorage.getItem(ID_KEY) || null,
   token: localStorage.getItem(TOKEN_KEY) || null,
   user: null,
+  hasPassword: false,
+  authMode: 'register', // or 'login'
   config: null,
+  inviteTarget: null, // { id, username } while the invite modal is open
   server: null,       // last /api/state response
   clockOffset: 0,     // serverNow - clientNow
   started: false,     // app (post-login) initialized once
@@ -222,6 +253,7 @@ function render() {
   const hasSession = running || (s?.history?.length > 0);
   els.resetBtn.classList.toggle('hidden', !hasSession);
 
+  updateIntervalSummary();
   renderStats();
   updateCountdown();
 }
@@ -313,6 +345,23 @@ function fillIntervalInputs(ms) {
   els.intervalUnit.value = '60000';
 }
 
+function formatInterval(ms) {
+  const units = [['day', 86400000], ['hour', 3600000], ['minute', 60000]];
+  for (const [name, u] of units) {
+    if (ms % u === 0) {
+      const n = ms / u;
+      return `every ${n} ${name}${n !== 1 ? 's' : ''}`;
+    }
+  }
+  const m = Math.round(ms / 60000);
+  return `every ${m} minute${m !== 1 ? 's' : ''}`;
+}
+
+function updateIntervalSummary() {
+  const ms = state.server?.intervalMs || Number(localStorage.getItem(INTERVAL_KEY)) || 3600000;
+  els.intervalSummary.textContent = formatInterval(ms);
+}
+
 async function saveSettings() {
   const intervalMs = readIntervalMs();
   localStorage.setItem(INTERVAL_KEY, String(intervalMs));
@@ -321,6 +370,7 @@ async function saveSettings() {
     const s = await api('/api/settings', 'POST', { id: state.id, intervalMs });
     applyServerState(s);
   }
+  updateIntervalSummary();
   setTimeout(() => { els.settingsMsg.textContent = ''; }, 2000);
 }
 
@@ -332,6 +382,9 @@ async function startTimer() {
   const s = await api('/api/start', 'POST', { id: state.id });
   applyServerState(s);
   els.banner.classList.add('hidden');
+  // Collapse the interval editor once the timer is running.
+  els.intervalEditor.classList.add('hidden');
+  els.settingsToggle.classList.remove('open');
   history.replaceState(null, '', './');
 }
 
@@ -347,15 +400,61 @@ async function fireNow() {
   showBanner();
 }
 
-// --- End session: show report, then clear everything ---------------------
-async function resetSession() {
-  if (!confirm('End this key-time session? You\'ll see a report, then the timer and all statistics are cleared.')) {
-    return;
-  }
-  const { report, state: s } = await api('/api/reset', 'POST', { id: state.id });
+// --- End session: name it, show report, save to history, then clear -------
+function openEndSessionModal() {
+  els.endsessionDesc.value = '';
+  els.endsessionModal.classList.remove('hidden');
+  els.endsessionDesc.focus();
+}
+
+function closeEndSessionModal() {
+  els.endsessionModal.classList.add('hidden');
+}
+
+async function confirmEndSession() {
+  const description = els.endsessionDesc.value.trim();
+  closeEndSessionModal();
+  const { report, state: s } = await api('/api/reset', 'POST', { id: state.id, description });
   applyServerState(s);
   showReport(report);
   els.banner.classList.add('hidden');
+  await refreshSessions();
+}
+
+async function refreshSessions() {
+  if (!state.token) return;
+  try {
+    renderSessions((await api('/api/sessions')).sessions);
+  } catch {
+    /* ignore */
+  }
+}
+
+function renderSessions(sessions) {
+  els.sessionsList.innerHTML = '';
+  els.sessionsEmpty.classList.toggle('hidden', sessions.length > 0);
+  sessions.forEach((s) => {
+    const li = document.createElement('li');
+
+    const head = document.createElement('div');
+    head.className = 's-head';
+    const title = document.createElement('span');
+    title.className = s.description ? 's-title' : 's-title untitled';
+    title.textContent = s.description || 'Untitled session';
+    const date = document.createElement('span');
+    date.className = 's-date';
+    date.textContent = fmtTime(s.endedAt);
+    head.append(title, date);
+
+    const stats = document.createElement('div');
+    stats.className = 's-stats';
+    const dur = fmtLongDuration(s.durationMs);
+    const gap = s.avgGapMs != null ? fmtLongDuration(s.avgGapMs) : '—';
+    stats.innerHTML = `<b>${s.count}</b> key times · <b>${dur}</b> long · avg gap <b>${gap}</b>`;
+
+    li.append(head, stats);
+    els.sessionsList.append(li);
+  });
 }
 
 function showReport(report) {
@@ -433,7 +532,7 @@ function renderFriends({ friends, incoming, outgoing }) {
     const invite = document.createElement('button');
     invite.className = 'btn btn-secondary';
     invite.textContent = '🔑 Invite';
-    invite.onclick = () => sendInvite(fr.user.id, fr.user.username);
+    invite.onclick = () => openInviteModal(fr.user.id, fr.user.username);
     actions.append(invite);
     els.friendsList.append(friendRow(fr.user.username, '', actions));
   });
@@ -478,14 +577,41 @@ async function refreshInvites() {
   }
 }
 
-const INVITE_STATUS = { pending: 'waiting…', accepted: 'accepted ✓', declined: 'declined' };
+function inviteItem(inv, { incoming }) {
+  const li = document.createElement('li');
+  li.className = 'invite-item';
 
-function renderInvites({ incoming, outgoing }) {
-  els.invitesIncoming.innerHTML = '';
-  els.invitesIncomingSection.classList.toggle('hidden', incoming.length === 0);
-  incoming.forEach((inv) => {
-    const actions = document.createElement('span');
-    actions.className = 'actions';
+  const head = document.createElement('div');
+  head.className = 'invite-head';
+  const name = document.createElement('span');
+  name.className = 'name';
+  name.textContent = inv.user.username;
+  const status = document.createElement('span');
+  status.className = `invite-status ${inv.status}`;
+  status.textContent = inv.status;
+  head.append(name, status);
+  li.append(head);
+
+  if (inv.message) {
+    const note = document.createElement('div');
+    note.className = 'invite-note';
+    note.textContent = `“${inv.message}”`;
+    li.append(note);
+  }
+
+  const times = document.createElement('div');
+  times.className = 'invite-times';
+  let t = `sent ${fmtTime(inv.createdAt)}`;
+  if (inv.respondedAt) {
+    t += ` · ${incoming ? 'you ' : ''}${inv.status} ${fmtTime(inv.respondedAt)}`;
+  }
+  times.textContent = t;
+  li.append(times);
+
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  if (incoming) {
+    // Always offer both — you can change your mind after accepting/declining.
     const acc = document.createElement('button');
     acc.className = 'btn btn-accept';
     acc.textContent = "I'm in";
@@ -495,34 +621,54 @@ function renderInvites({ incoming, outgoing }) {
     dec.textContent = 'Decline';
     dec.onclick = () => respondInvite(inv.id, false);
     actions.append(acc, dec);
-    els.invitesIncoming.append(friendRow(inv.user.username, '', actions));
-  });
+  }
+  const dismiss = document.createElement('button');
+  dismiss.className = 'btn btn-decline';
+  dismiss.textContent = '✕';
+  dismiss.setAttribute('aria-label', 'Dismiss');
+  dismiss.onclick = () => dismissInvite(inv.id);
+  actions.append(dismiss);
+  li.append(actions);
+
+  return li;
+}
+
+function renderInvites({ incoming, outgoing }) {
+  els.invitesIncoming.innerHTML = '';
+  els.invitesIncomingSection.classList.toggle('hidden', incoming.length === 0);
+  incoming.forEach((inv) => els.invitesIncoming.append(inviteItem(inv, { incoming: true })));
 
   els.invitesOutgoing.innerHTML = '';
   els.invitesOutgoingSection.classList.toggle('hidden', outgoing.length === 0);
-  outgoing.forEach((inv) => {
-    const actions = document.createElement('span');
-    actions.className = 'actions';
-    const dismiss = document.createElement('button');
-    dismiss.className = 'btn btn-decline';
-    dismiss.textContent = '✕';
-    dismiss.setAttribute('aria-label', 'Dismiss');
-    dismiss.onclick = () => dismissInvite(inv.id);
-    actions.append(dismiss);
-    els.invitesOutgoing.append(
-      friendRow(inv.user.username, INVITE_STATUS[inv.status] || inv.status, actions)
-    );
-  });
+  outgoing.forEach((inv) => els.invitesOutgoing.append(inviteItem(inv, { incoming: false })));
 
   els.invitesEmpty.classList.toggle('hidden', incoming.length + outgoing.length > 0);
   // Whole card only appears when there's something to show.
   els.invitesCard.classList.toggle('hidden', incoming.length + outgoing.length === 0);
 }
 
-async function sendInvite(userId, username) {
+// --- Invite compose modal ------------------------------------------------
+function openInviteModal(userId, username) {
+  state.inviteTarget = { id: userId, username };
+  els.inviteModalTitle.textContent = `Invite ${username} to key time`;
+  els.inviteMessage.value = '';
+  els.inviteModal.classList.remove('hidden');
+  els.inviteMessage.focus();
+}
+
+function closeInviteModal() {
+  els.inviteModal.classList.add('hidden');
+  state.inviteTarget = null;
+}
+
+async function sendInvite() {
+  if (!state.inviteTarget) return;
+  const { id, username } = state.inviteTarget;
+  const message = els.inviteMessage.value.trim();
+  closeInviteModal();
   els.friendMsg.textContent = '';
   try {
-    await api('/api/invite', 'POST', { toUserId: userId });
+    await api('/api/invite', 'POST', { toUserId: id, message });
     els.friendMsg.textContent = `Key time invite sent to ${username}.`;
     await refreshInvites();
   } catch (err) {
@@ -568,7 +714,21 @@ async function refreshState() {
   }
 }
 
-// --- Auth (pick a username; bound to this device) ------------------------
+// --- Auth (username + password) ------------------------------------------
+function setAuthMode(mode) {
+  state.authMode = mode;
+  const register = mode === 'register';
+  els.authTitle.textContent = register ? 'Welcome to Key Time' : 'Welcome back';
+  els.authSub.textContent = register
+    ? 'Create an account — your username is how friends find you, and it works on any device.'
+    : 'Log in to pick up where you left off.';
+  els.authSubmit.textContent = register ? 'Create account' : 'Log in';
+  els.authPassword.autocomplete = register ? 'new-password' : 'current-password';
+  els.authSwitchText.textContent = register ? 'Already have an account?' : 'New here?';
+  els.authSwitch.textContent = register ? 'Log in' : 'Create account';
+  els.authMsg.textContent = '';
+}
+
 function showAuth() {
   els.authScreen.classList.remove('hidden');
   els.appBody.classList.add('hidden');
@@ -584,15 +744,18 @@ function showApp() {
   els.accountName.textContent = state.user?.username || '';
 }
 
-async function claimUsername(e) {
+async function doAuth(e) {
   e.preventDefault();
   const username = els.authUsername.value.trim();
+  const password = els.authPassword.value;
   els.authMsg.textContent = '';
   els.authSubmit.disabled = true;
   try {
-    const { token, user } = await api('/api/register', 'POST', { username });
+    const path = state.authMode === 'register' ? '/api/register' : '/api/login';
+    const { token, user } = await api(path, 'POST', { username, password });
     state.token = token;
     state.user = user;
+    state.hasPassword = true;
     localStorage.setItem(TOKEN_KEY, token);
     showApp();
     await startApp();
@@ -604,11 +767,67 @@ async function claimUsername(e) {
 }
 
 function logout() {
-  if (!confirm('Log out? This username is tied to this device — without it you may not be able to reclaim the name.')) return;
+  if (!confirm('Log out of Key Time on this device?')) return;
   localStorage.removeItem(TOKEN_KEY);
   state.token = null;
   state.user = null;
   location.reload();
+}
+
+async function saveUsername() {
+  const username = els.nameInput.value.trim();
+  els.nameMsg.textContent = '';
+  if (!username || username === state.user?.username) return;
+  try {
+    const { user } = await api('/api/username', 'POST', { username });
+    state.user = user;
+    els.accountName.textContent = user.username;
+    els.nameInput.value = user.username;
+    renderQR(); // QR encodes the username
+    els.nameMsg.textContent = 'Username updated.';
+    await refreshFriends();
+  } catch (err) {
+    els.nameMsg.textContent = err.detail || 'Could not update username.';
+  }
+  setTimeout(() => { els.nameMsg.textContent = ''; }, 3000);
+}
+
+function renderPasswordSection() {
+  els.pwHeading.textContent = 'Password';
+  els.pwSave.textContent = 'Update';
+  els.pwInput.placeholder = 'new password';
+  els.pwHint.textContent = state.hasPassword
+    ? 'Update the password you use to log in.'
+    : 'Set a password so you can log in on another device.';
+}
+
+async function savePassword() {
+  const password = els.pwInput.value;
+  els.pwMsg.textContent = '';
+  if (!password || password.length < 6) {
+    els.pwMsg.textContent = 'Password must be at least 6 characters.';
+    return;
+  }
+  try {
+    await api('/api/password', 'POST', { password });
+    state.hasPassword = true;
+    els.pwInput.value = '';
+    els.pwMsg.textContent = 'Password saved.';
+    renderPasswordSection();
+  } catch (err) {
+    els.pwMsg.textContent = err.detail || 'Could not save password.';
+  }
+  setTimeout(() => { els.pwMsg.textContent = ''; }, 3000);
+}
+
+// --- Tabs ----------------------------------------------------------------
+function showTab(name) {
+  document.querySelectorAll('[data-panel]').forEach((el) =>
+    el.classList.toggle('hidden', el.dataset.panel !== name)
+  );
+  document.querySelectorAll('.tab').forEach((t) =>
+    t.classList.toggle('active', t.dataset.tab === name)
+  );
 }
 
 // --- Init ----------------------------------------------------------------
@@ -619,11 +838,14 @@ async function startApp() {
   const params = new URLSearchParams(location.search);
   if (params.get('keytime') === '1') showBanner();
 
+  renderPasswordSection();
+  els.nameInput.value = state.user?.username || '';
   await ensureSubscription();
   await refreshState();
   renderQR();
   await refreshFriends();
   await refreshInvites();
+  await refreshSessions();
   render();
 
   // Deep links: ?addFriend=<username> (scanned QR), ?friends=1, ?invites=1.
@@ -632,6 +854,7 @@ async function startApp() {
     await addFriend(pendingFriend);
   }
   if (pendingFriend || params.get('friends') === '1') {
+    showTab('friends');
     els.friendsCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
   if (params.get('invites') === '1') {
@@ -658,27 +881,45 @@ async function init() {
   els.startBtn.addEventListener('click', startTimer);
   els.fireBtn.addEventListener('click', fireNow);
   els.stopBtn.addEventListener('click', stopTimer);
-  els.resetBtn.addEventListener('click', resetSession);
+  els.resetBtn.addEventListener('click', openEndSessionModal);
+  els.endsessionConfirm.addEventListener('click', confirmEndSession);
+  els.endsessionCancel.addEventListener('click', closeEndSessionModal);
+  els.endsessionModal.addEventListener('click', (e) => {
+    if (e.target === els.endsessionModal) closeEndSessionModal();
+  });
   els.reportDone.addEventListener('click', () => els.reportCard.classList.add('hidden'));
   els.bannerStart.addEventListener('click', startTimer);
   els.saveSettings.addEventListener('click', saveSettings);
+  els.settingsToggle.addEventListener('click', () => {
+    const hidden = els.intervalEditor.classList.toggle('hidden');
+    els.settingsToggle.classList.toggle('open', !hidden);
+  });
   els.enableBtn?.addEventListener('click', enableNotifications);
-  els.authForm.addEventListener('submit', claimUsername);
+  els.authForm.addEventListener('submit', doAuth);
+  els.authSwitch.addEventListener('click', () =>
+    setAuthMode(state.authMode === 'register' ? 'login' : 'register')
+  );
   els.logoutBtn.addEventListener('click', logout);
+  els.nameSave.addEventListener('click', saveUsername);
+  els.pwSave.addEventListener('click', savePassword);
   els.friendAddBtn.addEventListener('click', () => addFriend());
   els.friendUsername.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') addFriend();
   });
-
-  // Collapsible cards (Settings, Friends) — remember state per card.
-  document.querySelectorAll('.card-collapsible').forEach((card) => {
-    const key = `keytime.collapse.${card.id}`;
-    if (localStorage.getItem(key) === '1') card.classList.add('collapsed');
-    card.querySelector('h2').addEventListener('click', () => {
-      const collapsed = card.classList.toggle('collapsed');
-      localStorage.setItem(key, collapsed ? '1' : '0');
-    });
+  els.inviteSend.addEventListener('click', sendInvite);
+  els.inviteCancel.addEventListener('click', closeInviteModal);
+  els.inviteMessage.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendInvite();
   });
+  els.inviteModal.addEventListener('click', (e) => {
+    if (e.target === els.inviteModal) closeInviteModal();
+  });
+
+  // Tab menu
+  els.tabs.querySelectorAll('.tab').forEach((tab) => {
+    tab.addEventListener('click', () => showTab(tab.dataset.tab));
+  });
+  showTab('timer');
 
   // restore saved interval into the form
   const savedInterval = Number(localStorage.getItem(INTERVAL_KEY));
@@ -694,8 +935,10 @@ async function init() {
   // Gate on auth: a stored token must still be valid.
   if (state.token) {
     try {
-      const { user } = await api('/api/me');
+      const { user, hasPassword } = await api('/api/me');
       state.user = user;
+      state.hasPassword = Boolean(hasPassword);
+      renderPasswordSection();
       showApp();
       await startApp();
       return;
@@ -704,6 +947,7 @@ async function init() {
       state.token = null;
     }
   }
+  setAuthMode('register');
   showAuth();
 }
 

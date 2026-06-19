@@ -8,6 +8,21 @@ import crypto from 'node:crypto';
 const SECRET =
   process.env.AUTH_SECRET || process.env.VAPID_PRIVATE_KEY || 'key-time-dev-secret';
 
+export function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+export function verifyPassword(password, stored) {
+  const [salt, hash] = String(stored || '').split(':');
+  if (!salt || !hash) return false;
+  const test = crypto.scryptSync(password, salt, 64).toString('hex');
+  const a = Buffer.from(hash, 'hex');
+  const b = Buffer.from(test, 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 export function signToken(userId) {
   const mac = crypto.createHmac('sha256', SECRET).update(userId).digest('base64url');
   return `${userId}.${mac}`;

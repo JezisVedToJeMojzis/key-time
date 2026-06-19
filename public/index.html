@@ -24,19 +24,31 @@
       </div>
     </header>
 
-    <!-- Pick a username (shown on first launch) -->
+    <!-- Sign in / create account (shown when signed out) -->
     <section id="auth-screen" class="hidden">
       <div class="auth-badge">🔑</div>
-      <h2>Welcome to Key Time</h2>
-      <p class="auth-sub">Pick a username to get started — it's how friends find you, and it's saved on this device.</p>
-      <form id="auth-form" autocomplete="off">
-        <input id="auth-username" class="auth-input" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="choose a username" maxlength="20" aria-label="Username" required />
-        <button id="auth-submit" type="submit" class="btn auth-btn">Continue</button>
+      <h2 id="auth-title">Welcome to Key Time</h2>
+      <p class="auth-sub" id="auth-sub">Create an account — your username is how friends find you, and it works on any device.</p>
+      <form id="auth-form" autocomplete="on">
+        <input id="auth-username" class="auth-input" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="username" maxlength="20" aria-label="Username" required />
+        <input id="auth-password" class="auth-input" type="password" autocomplete="new-password" placeholder="password" aria-label="Password" required />
+        <button id="auth-submit" type="submit" class="btn auth-btn">Create account</button>
       </form>
       <p id="auth-msg" class="hint auth-msg"></p>
+      <p class="hint auth-switch-line">
+        <span id="auth-switch-text">Already have an account?</span>
+        <button id="auth-switch" type="button" class="btn btn-small btn-ghost">Log in</button>
+      </p>
     </section>
 
     <div id="app-body" class="hidden">
+
+    <!-- Top navigation -->
+    <nav class="tabs" id="tabs">
+      <button class="tab active" type="button" data-tab="timer">Timer</button>
+      <button class="tab" type="button" data-tab="friends">Friends</button>
+      <button class="tab" type="button" data-tab="profile">Profile</button>
+    </nav>
 
     <!-- Shown when the app is opened from a notification -->
     <section id="keytime-banner" class="card banner hidden">
@@ -67,7 +79,7 @@
     </section>
 
     <!-- Live status -->
-    <section class="card" id="status-card">
+    <section class="card" id="status-card" data-panel="timer">
       <div class="status-row">
         <span class="label">Status</span>
         <span id="status-text" class="status-pill">—</span>
@@ -82,28 +94,55 @@
         Enable notifications to receive your key time alerts.
         <button id="enable-btn" class="btn btn-small">Enable notifications</button>
       </p>
+
+      <button id="settings-toggle" class="settings-toggle" type="button">
+        <span id="interval-summary">every 1 hour</span>
+        <span class="chev" aria-hidden="true">▾</span>
+      </button>
+      <div id="interval-editor" class="hidden">
+        <label class="field">
+          <span>Notify me every</span>
+          <div class="interval-input">
+            <input id="interval-value" type="number" min="1" step="1" value="1" inputmode="numeric" />
+            <select id="interval-unit">
+              <option value="60000">minutes</option>
+              <option value="3600000" selected>hours</option>
+              <option value="86400000">days</option>
+            </select>
+          </div>
+        </label>
+        <button id="save-settings" class="btn btn-secondary">Save interval</button>
+        <p id="settings-msg" class="hint"></p>
+      </div>
     </section>
 
-    <!-- Settings -->
-    <section class="card card-collapsible" id="settings-card">
-      <h2>Settings</h2>
-      <label class="field">
-        <span>Notify me every</span>
-        <div class="interval-input">
-          <input id="interval-value" type="number" min="1" step="1" value="1" inputmode="numeric" />
-          <select id="interval-unit">
-            <option value="60000">minutes</option>
-            <option value="3600000" selected>hours</option>
-            <option value="86400000">days</option>
-          </select>
-        </div>
-      </label>
-      <button id="save-settings" class="btn btn-secondary">Save interval</button>
-      <p id="settings-msg" class="hint"></p>
+    <!-- Profile -->
+    <section class="card" id="settings-card" data-panel="profile">
+      <h2>Profile</h2>
+
+      <h3 class="subhead">Username</h3>
+      <p class="hint" style="margin:0 0 10px">This is how friends find you.</p>
+      <div class="friend-add">
+        <input id="name-input" type="text" maxlength="20" autocapitalize="none" spellcheck="false" placeholder="username" />
+        <button id="name-save" class="btn btn-secondary">Update</button>
+      </div>
+      <p id="name-msg" class="hint"></p>
+
+      <h3 class="subhead" id="pw-heading">Password</h3>
+      <p class="hint" id="pw-hint" style="margin:0 0 10px">Set a password so you can log in on another device.</p>
+      <div class="friend-add">
+        <input id="pw-input" type="password" autocomplete="new-password" placeholder="new password" />
+        <button id="pw-save" class="btn btn-secondary">Save</button>
+      </div>
+      <p id="pw-msg" class="hint"></p>
+
+      <h3 class="subhead">Session history</h3>
+      <ul id="sessions-list" class="sessions"></ul>
+      <p id="sessions-empty" class="hint">No past sessions yet — end a session to save it here.</p>
     </section>
 
     <!-- Friends -->
-    <section class="card card-collapsible" id="friends-card">
+    <section class="card" id="friends-card" data-panel="friends">
       <h2>Friends</h2>
 
       <div class="friend-add">
@@ -148,7 +187,7 @@
     </section>
 
     <!-- Statistics -->
-    <section class="card" id="stats-card">
+    <section class="card" id="stats-card" data-panel="timer">
       <h2>Statistics</h2>
       <div class="stats-summary">
         <div class="stat">
@@ -185,6 +224,31 @@
       <span id="conn-status">connecting…</span>
     </footer>
   </main>
+
+  <!-- End-session modal -->
+  <div id="endsession-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <h3>End this session?</h3>
+      <p class="hint" style="margin:0 0 12px">You'll see a summary, then it's saved to your history and the timer resets.</p>
+      <input id="endsession-desc" type="text" maxlength="120" placeholder="name this session (optional) — e.g. focus sprint" />
+      <div class="modal-actions">
+        <button id="endsession-cancel" type="button" class="btn btn-ghost">Cancel</button>
+        <button id="endsession-confirm" type="button" class="btn btn-danger">End session</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Invite compose modal -->
+  <div id="invite-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <h3 id="invite-modal-title">Invite to key time</h3>
+      <input id="invite-message" type="text" maxlength="140" placeholder="add a note (optional) — e.g. where?" />
+      <div class="modal-actions">
+        <button id="invite-cancel" type="button" class="btn btn-ghost">Cancel</button>
+        <button id="invite-send" type="button" class="btn btn-primary">Send invite</button>
+      </div>
+    </div>
+  </div>
 
   <script src="./vendor/qrcode.js"></script>
   <script src="./app.js" type="module"></script>

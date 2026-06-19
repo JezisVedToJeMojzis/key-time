@@ -11,7 +11,7 @@ import crypto from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const COLLECTIONS = ['records', 'users', 'friendships', 'invites'];
+const COLLECTIONS = ['records', 'users', 'friendships', 'invites', 'sessions'];
 
 /** @type {Record<string, Map<string, object>>} */
 const data = Object.fromEntries(COLLECTIONS.map((c) => [c, new Map()]));
@@ -223,12 +223,29 @@ export function getUserByUsername(username) {
   return [...data.users.values()].find((x) => x.username.toLowerCase() === u) || null;
 }
 
-export async function createUser({ username }) {
+export async function createUser({ username, passwordHash = null }) {
   const user = {
     id: crypto.randomUUID(),
     username,
+    passwordHash,
     createdAt: Date.now(),
   };
+  await save('users', user);
+  return user;
+}
+
+export async function setUserPassword(id, passwordHash) {
+  const user = data.users.get(id);
+  if (!user) return null;
+  user.passwordHash = passwordHash;
+  await save('users', user);
+  return user;
+}
+
+export async function setUsername(id, username) {
+  const user = data.users.get(id);
+  if (!user) return null;
+  user.username = username;
   await save('users', user);
   return user;
 }
@@ -294,13 +311,15 @@ export function invitesTo(userId) {
   return [...data.invites.values()].filter((i) => i.to === userId);
 }
 
-export async function createInvite({ from, to }) {
+export async function createInvite({ from, to, message = '' }) {
   const inv = {
     id: crypto.randomUUID(),
     from,
     to,
+    message,
     status: 'pending',
     createdAt: Date.now(),
+    respondedAt: null,
   };
   await save('invites', inv);
   return inv;
@@ -313,4 +332,19 @@ export async function saveInvite(inv) {
 
 export async function removeInvite(id) {
   return drop('invites', id);
+}
+
+// =========================================================================
+// Sessions (saved summaries of ended key-time sessions)
+// =========================================================================
+export function sessionsFor(userId) {
+  return [...data.sessions.values()]
+    .filter((s) => s.userId === userId)
+    .sort((a, b) => b.endedAt - a.endedAt);
+}
+
+export async function createSession(session) {
+  const s = { id: crypto.randomUUID(), ...session };
+  await save('sessions', s);
+  return s;
 }
