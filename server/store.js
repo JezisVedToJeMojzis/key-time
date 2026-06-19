@@ -196,6 +196,17 @@ export async function recordFire(id, firedAt = Date.now()) {
   return rec;
 }
 
+/** Remove a single key-time entry from a record's history (by its timestamp). */
+export async function removeHistoryEntry(id, firedAt) {
+  const rec = data.records.get(id);
+  if (!rec) return null;
+  const idx = rec.history.findIndex((h) => h.firedAt === firedAt);
+  if (idx === -1) return rec;
+  rec.history.splice(idx, 1);
+  await save('records', rec);
+  return rec;
+}
+
 /** End the session: clear history and stop the timer. Keeps interval + subscription. */
 export async function clearSession(id) {
   const rec = data.records.get(id);
@@ -315,6 +326,10 @@ export function invitesByEvent(eventId) {
   return [...data.invites.values()].filter((i) => i.eventId === eventId);
 }
 
+export function invitesForGroup(groupId) {
+  return [...data.invites.values()].filter((i) => i.groupId === groupId);
+}
+
 export async function createInvite({ from, to, message = '', groupId = null, eventId = null, status = 'pending' }) {
   const inv = {
     id: crypto.randomUUID(),
@@ -345,6 +360,10 @@ export async function removeInvite(id) {
 // =========================================================================
 // Sessions (saved summaries of ended key-time sessions)
 // =========================================================================
+export function getSession(id) {
+  return data.sessions.get(id) || null;
+}
+
 export function sessionsFor(userId) {
   return [...data.sessions.values()]
     .filter((s) => s.userId === userId)
@@ -355,6 +374,10 @@ export async function createSession(session) {
   const s = { id: crypto.randomUUID(), ...session };
   await save('sessions', s);
   return s;
+}
+
+export async function removeSession(id) {
+  return drop('sessions', id);
 }
 
 // =========================================================================

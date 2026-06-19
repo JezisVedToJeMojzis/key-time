@@ -329,9 +329,9 @@ app.post('/api/invite/respond', async (req, res) => {
     if (isRecipient) {
       payload = accept
         ? { title: `🔑 ${me.username} is in!`, body: `${me.username} accepted your key time invite.` }
-        : { title: `${me.username} can't right now`, body: `${me.username} declined your key time invite.` };
+        : { title: `🔑 ${me.username} can't right now`, body: `${me.username} declined your key time invite.` };
     } else {
-      payload = { title: `${me.username} cancelled`, body: `${me.username} cancelled the key time invite.` };
+      payload = { title: `🔑 ${me.username} cancelled`, body: `${me.username} cancelled the key time invite.` };
     }
     payload.data = { url: './?invites=1' };
     await pushToUser(other.id, payload);
@@ -558,6 +558,13 @@ app.post('/api/groups/keytime', async (req, res) => {
   const recipients = g.members.filter((id) => id !== me.id);
   if (!recipients.length) return res.status(400).json({ error: 'no one else in the group yet' });
 
+  // Only one active group key time at a time: block a new blast while an earlier
+  // one still has anyone who hasn't responded yet.
+  const active = store.invitesForGroup(g.id).some((i) => i.eventId && i.status === 'pending');
+  if (active) {
+    return res.status(409).json({ error: 'a group key time is already active — wait for it to wrap up' });
+  }
+
   const eventId = crypto.randomUUID();
   // The initiator joins their own event as an accepted self-invite, so they can
   // later drop out (decline) without cancelling the key time for everyone else.
@@ -630,6 +637,19 @@ app.post('/api/fire', async (req, res) => {
   res.json(publicState(rec));
 });
 
+// Remove a single key-time entry from the current session's history.
+app.post('/api/history/remove', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const rec = store.getRecord(req.body?.id);
+  if (!rec) return res.status(404).json({ error: 'not found' });
+  if (rec.userId !== me.id) return res.status(403).json({ error: 'not your timer' });
+  const firedAt = req.body?.firedAt;
+  if (typeof firedAt !== 'number') return res.status(400).json({ error: 'firedAt required' });
+  const updated = await store.removeHistoryEntry(rec.id, firedAt);
+  res.json(publicState(updated));
+});
+
 // --- State / stats -------------------------------------------------------
 app.get('/api/state', (req, res) => {
   const rec = store.getRecord(req.query.id);
@@ -669,6 +689,16 @@ app.get('/api/sessions', (req, res) => {
   const me = requireUser(req, res);
   if (!me) return;
   res.json({ sessions: store.sessionsFor(me.id) });
+});
+
+// Delete a saved session from history.
+app.post('/api/sessions/remove', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const s = store.getSession(req.body?.sessionId);
+  if (!s || s.userId !== me.id) return res.status(404).json({ error: 'no such session' });
+  await store.removeSession(s.id);
+  res.json({ ok: true });
 });
 
 function buildReport(history) {

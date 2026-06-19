@@ -69,10 +69,10 @@
         <button id="fire-btn" class="btn btn-secondary hidden">Key time now</button>
         <button id="stop-btn" class="btn btn-ghost hidden">Stop</button>
       </div>
-      <p id="enable-hint" class="hint hidden">
-        Enable notifications to receive your key time alerts.
-        <button id="enable-btn" class="btn btn-small">Enable notifications</button>
-      </p>
+      <div id="enable-hint" class="enable-hint hidden">
+        <span class="hint">Enable notifications to receive your key time alerts.</span>
+        <button id="enable-btn" class="btn btn-secondary">Enable notifications</button>
+      </div>
 
       <button id="settings-toggle" class="settings-toggle" type="button">
         <span id="interval-summary">every 1 hour</span>
@@ -101,7 +101,7 @@
       <h3 class="subhead">Username</h3>
       <p class="hint" style="margin:0 0 10px">This is how friends find you.</p>
       <div class="friend-add">
-        <input id="name-input" type="text" maxlength="20" autocapitalize="none" spellcheck="false" placeholder="username" />
+        <input id="name-input" type="text" name="display-name" autocomplete="off" maxlength="20" autocapitalize="none" spellcheck="false" placeholder="username" />
         <button id="name-save" class="btn btn-secondary">Update</button>
       </div>
       <p id="name-msg" class="hint"></p>
@@ -131,7 +131,7 @@
 
       <div data-subpanel="friends">
         <div class="friend-add">
-          <input id="friend-username" type="text" autocapitalize="none" spellcheck="false" placeholder="add by username" maxlength="20" />
+          <input id="friend-username" type="text" name="friend-username" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="add by username" maxlength="20" />
           <button id="friend-add-btn" class="btn btn-secondary">Add</button>
         </div>
         <p id="friend-msg" class="hint"></p>
@@ -156,7 +156,7 @@
 
       <div data-subpanel="groups" class="hidden">
         <div class="friend-add">
-          <input id="group-name" type="text" maxlength="30" placeholder="new group name" />
+          <input id="group-name" type="text" name="group-name" autocomplete="off" maxlength="30" placeholder="new group name" />
           <button id="group-create-btn" class="btn btn-secondary">Create</button>
         </div>
         <p id="group-msg" class="hint"></p>
@@ -256,7 +256,7 @@
           <span class="stat-label">last key time</span>
         </div>
       </div>
-      <input id="endsession-desc" type="text" maxlength="120" placeholder="name this session (optional) — e.g. focus sprint" />
+      <input id="endsession-desc" type="text" name="session-desc" autocomplete="off" maxlength="120" placeholder="name this session (optional) — e.g. focus sprint" />
       <div class="modal-actions">
         <button id="endsession-cancel" type="button" class="btn btn-ghost">Cancel</button>
         <button id="endsession-confirm" type="button" class="btn btn-primary">Done</button>
@@ -268,7 +268,7 @@
   <div id="invite-modal" class="modal-overlay hidden">
     <div class="modal">
       <h3 id="invite-modal-title">Invite to key time</h3>
-      <input id="invite-message" type="text" maxlength="25" placeholder="short note — e.g. at the gym?" />
+      <input id="invite-message" type="text" name="invite-message" autocomplete="off" maxlength="25" placeholder="short note — e.g. at the gym?" />
       <p class="invite-pick-label">Send to</p>
       <div id="invite-friends" class="invite-friends"></div>
       <div class="modal-actions">
@@ -282,7 +282,7 @@
   <div id="group-keytime-modal" class="modal-overlay hidden">
     <div class="modal">
       <h3 id="group-keytime-title">Invite group to key time</h3>
-      <input id="group-keytime-message" type="text" maxlength="25" placeholder="short note — e.g. at the gym?" />
+      <input id="group-keytime-message" type="text" name="group-keytime-message" autocomplete="off" maxlength="25" placeholder="short note — e.g. at the gym?" />
       <div class="modal-actions">
         <button id="group-keytime-cancel" type="button" class="btn btn-ghost">Cancel</button>
         <button id="group-keytime-send" type="button" class="btn btn-primary">Invite group</button>

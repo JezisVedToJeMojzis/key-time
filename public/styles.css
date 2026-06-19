@@ -272,6 +272,18 @@ html, body {
 .interval-input select:focus { outline: none; border-color: var(--accent); }
 
 .hint { color: var(--text-dim); font-size: 0.85rem; margin: 10px 0 0; min-height: 1em; }
+
+/* "Enable notifications" prompt: centred text with a tidy button below it. */
+.enable-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  text-align: center;
+}
+.enable-hint .hint { margin: 0; }
+.enable-hint .btn { flex: 0 0 auto; }
 /* The save-confirmation message reserves no space when empty, so the button
    doesn't have a big gap beneath it. */
 #settings-msg { margin: 0; min-height: 0; }
@@ -311,6 +323,19 @@ html, body {
 }
 .history .idx { color: var(--text-dim); font-weight: 600; margin-right: 10px; }
 .history .gap { color: var(--text-dim); font-size: 0.8rem; }
+.hist-right { display: flex; align-items: center; gap: 10px; }
+
+/* Small ✕ to remove a single key time or saved session */
+.hist-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 2px 4px;
+}
+.hist-remove:hover { color: var(--danger); }
 
 /* Friends */
 .subhead { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); margin: 18px 0 8px; }
@@ -496,7 +521,9 @@ html, body {
 }
 .group-summary::-webkit-details-marker { display: none; }
 .group-summary .group-name { font-weight: 600; }
-.group-summary .group-count { font-size: 0.78rem; color: var(--text-dim); }
+.group-summary-right { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.group-summary .group-count { font-size: 0.78rem; color: var(--text-dim); white-space: nowrap; }
+.group-invite-btn { flex: 0 0 auto; padding: 7px 12px; font-size: 0.85rem; }
 .group-members { list-style: none; margin: 0; padding: 0 14px; display: flex; flex-direction: column; gap: 6px; }
 .group-members li {
   display: flex;
@@ -507,6 +534,9 @@ html, body {
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 0.9rem;
+  /* Match the height of rows that carry an action button so the creator's
+     (button-less) row lines up with everyone else. */
+  min-height: 46px;
 }
 .group-members .actions .btn { flex: 0 0 auto; padding: 6px 10px; font-size: 0.8rem; }
 .group-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px 12px; }
@@ -553,6 +583,7 @@ html, body {
   padding: 12px 14px;
 }
 .sessions .s-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.sessions .s-head-right { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 .sessions .s-title { font-weight: 600; }
 .sessions .s-title.untitled { color: var(--text-dim); font-weight: 500; font-style: italic; }
 .sessions .s-date { font-size: 0.75rem; color: var(--text-dim); white-space: nowrap; }

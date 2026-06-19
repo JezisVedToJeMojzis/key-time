@@ -308,11 +308,20 @@ function renderStats() {
     const li = document.createElement('li');
     const left = document.createElement('span');
     left.innerHTML = `<span class="idx">#${idxFromStart}</span>${fmtTime(h.firedAt)}`;
+
     const right = document.createElement('span');
-    right.className = 'gap';
+    right.className = 'hist-right';
+    const gap = document.createElement('span');
+    gap.className = 'gap';
     const realIdx = idxFromStart - 1;
-    if (realIdx > 0) right.textContent = fmtGap(h.firedAt - hist[realIdx - 1].firedAt);
-    else right.textContent = 'first';
+    gap.textContent = realIdx > 0 ? fmtGap(h.firedAt - hist[realIdx - 1].firedAt) : 'first';
+    const del = document.createElement('button');
+    del.className = 'hist-remove';
+    del.textContent = '✕';
+    del.setAttribute('aria-label', 'Remove this key time');
+    del.onclick = () => removeHistoryEntry(h.firedAt);
+    right.append(gap, del);
+
     li.append(left, right);
     els.historyList.append(li);
   });
@@ -456,6 +465,18 @@ async function fireNow() {
   showBanner();
 }
 
+// Remove a single key time from the current session's history; the list
+// re-numbers itself from the refreshed state.
+async function removeHistoryEntry(firedAt) {
+  if (!state.id) return;
+  try {
+    const s = await api('/api/history/remove', 'POST', { id: state.id, firedAt });
+    applyServerState(s);
+  } catch {
+    /* ignore */
+  }
+}
+
 // --- End session: review the summary, name it, save to history, then clear -
 function openEndSessionModal() {
   const hist = state.server?.history || [];
@@ -503,6 +524,16 @@ async function refreshSessions() {
   }
 }
 
+async function removeSession(id) {
+  if (!confirm('Remove this session from your history?')) return;
+  try {
+    await api('/api/sessions/remove', 'POST', { sessionId: id });
+    await refreshSessions();
+  } catch {
+    /* ignore */
+  }
+}
+
 function renderSessions(sessions) {
   els.sessionsList.innerHTML = '';
   els.sessionsEmpty.classList.toggle('hidden', sessions.length > 0);
@@ -514,10 +545,18 @@ function renderSessions(sessions) {
     const title = document.createElement('span');
     title.className = s.description ? 's-title' : 's-title untitled';
     title.textContent = s.description || 'Untitled session';
+    const right = document.createElement('span');
+    right.className = 's-head-right';
     const date = document.createElement('span');
     date.className = 's-date';
     date.textContent = fmtTime(s.endedAt);
-    head.append(title, date);
+    const del = document.createElement('button');
+    del.className = 'hist-remove';
+    del.textContent = '✕';
+    del.setAttribute('aria-label', 'Remove this session');
+    del.onclick = () => removeSession(s.id);
+    right.append(date, del);
+    head.append(title, right);
 
     const stats = document.createElement('div');
     stats.className = 's-stats';
@@ -585,7 +624,7 @@ function renderFriends({ friends, incoming, outgoing }) {
     dec.textContent = 'Decline';
     dec.onclick = () => respondFriend(r.friendshipId, false);
     actions.append(acc, dec);
-    els.requestsList.append(friendRow(r.user.username, '', actions));
+    els.requestsList.append(friendRow(`👤 ${r.user.username}`, '', actions));
   });
 
   els.friendsList.innerHTML = '';
@@ -601,9 +640,9 @@ function renderFriends({ friends, incoming, outgoing }) {
     remove.textContent = 'Remove';
     remove.onclick = () => removeFriend(fr.user.id, fr.user.username);
     actions.append(invite, remove);
-    els.friendsList.append(friendRow(fr.user.username, '', actions));
+    els.friendsList.append(friendRow(`👤 ${fr.user.username}`, '', actions));
   });
-  outgoing.forEach((o) => els.friendsList.append(friendRow(o.user.username, 'requested')));
+  outgoing.forEach((o) => els.friendsList.append(friendRow(`👤 ${o.user.username}`, 'requested')));
   els.friendsEmpty.classList.toggle('hidden', friends.length + outgoing.length > 0);
 }
 
@@ -665,9 +704,9 @@ function inviteItem(inv, { incoming }) {
   head.className = 'invite-head';
   const name = document.createElement('span');
   name.className = 'name';
-  // For a group key time the group is the subject (shown once, in the head);
+  // For a group key time the group is the subject, flagged with a 👥 emoji;
   // who sent it goes in the context line below. 1:1 invites show the person.
-  name.textContent = isGroup ? inv.group.name : inv.user.username;
+  name.textContent = isGroup ? `👥 ${inv.group.name}` : inv.user.username;
 
   const right = document.createElement('span');
   right.className = 'invite-head-right';
@@ -689,21 +728,14 @@ function inviteItem(inv, { incoming }) {
   head.append(name, right);
   li.append(head);
 
-  // Group context: a badge plus who sent it (for incoming).
-  if (isGroup) {
+  // Group context: who sent it (for incoming invites).
+  if (isGroup && incoming) {
     const ctx = document.createElement('div');
     ctx.className = 'invite-group';
-    const badge = document.createElement('span');
-    badge.className = 'group-badge';
-    // The group name is already in the head — the badge just flags the type.
-    badge.textContent = '👥 Group key time';
-    ctx.append(badge);
-    if (incoming) {
-      const from = document.createElement('span');
-      from.className = 'invite-from';
-      from.textContent = `from ${inv.user.username}`;
-      ctx.append(from);
-    }
+    const from = document.createElement('span');
+    from.className = 'invite-from';
+    from.textContent = `from ${inv.user.username}`;
+    ctx.append(from);
     li.append(ctx);
   }
 
@@ -770,24 +802,33 @@ function inviteItem(inv, { incoming }) {
     li.append(row, responses);
   }
 
+  // A small helper for the response buttons.
+  const mkBtn = (cls, label, accept) => {
+    const b = document.createElement('button');
+    b.className = `btn ${cls}`;
+    b.textContent = label;
+    b.onclick = () => respondInvite(inv.id, accept);
+    return b;
+  };
+
   // Action buttons.
   const actions = document.createElement('div');
   actions.className = 'actions';
   if (incoming) {
-    // Recipient: accept (unless already in) and/or decline. Nothing once declined.
-    if (inv.status !== 'declined') {
-      if (inv.status !== 'accepted') {
-        const acc = document.createElement('button');
-        acc.className = 'btn btn-accept';
-        acc.textContent = "I'm in";
-        acc.onclick = () => respondInvite(inv.id, true);
-        actions.append(acc);
+    if (isGroup) {
+      // Group recipient can flip their RSVP at any time without it disappearing.
+      if (inv.status === 'accepted') {
+        actions.append(mkBtn('btn-decline', 'Drop out', false));
+      } else if (inv.status === 'declined') {
+        actions.append(mkBtn('btn-accept', "I'm back in", true));
+      } else {
+        actions.append(mkBtn('btn-accept', "I'm in", true));
+        actions.append(mkBtn('btn-decline', 'Decline', false));
       }
-      const dec = document.createElement('button');
-      dec.className = 'btn btn-decline';
-      dec.textContent = 'Decline';
-      dec.onclick = () => respondInvite(inv.id, false);
-      actions.append(dec);
+    } else if (inv.status !== 'declined') {
+      // 1:1 recipient: accept (unless already in) and/or decline.
+      if (inv.status !== 'accepted') actions.append(mkBtn('btn-accept', "I'm in", true));
+      actions.append(mkBtn('btn-decline', 'Decline', false));
     }
   } else if (isGroup) {
     // Initiator of a group blast can drop out (or rejoin) without cancelling the
@@ -944,7 +985,7 @@ function renderGroups({ groups, invites }) {
     dec.onclick = () => respondGroupInvite(inv.groupInviteId, false);
     actions.append(acc, dec);
     els.groupInvites.append(
-      friendRow(`${inv.group.name} · from ${inv.user.username}`, '', actions)
+      friendRow(`👥 ${inv.group.name} · from ${inv.user.username}`, '', actions)
     );
   });
 
@@ -961,11 +1002,24 @@ function renderGroups({ groups, invites }) {
     summary.className = 'group-summary';
     const title = document.createElement('span');
     title.className = 'group-name';
-    title.textContent = g.name;
+    title.textContent = `👥 ${g.name}`;
+    const right = document.createElement('span');
+    right.className = 'group-summary-right';
     const count = document.createElement('span');
     count.className = 'group-count';
     count.textContent = `${g.members.length} ${g.members.length === 1 ? 'member' : 'members'}`;
-    summary.append(title, count);
+    // The key-time invite lives on the summary line (like the friend rows), so it
+    // works without expanding the group. Stop the click from toggling the panel.
+    const kt = document.createElement('button');
+    kt.className = 'btn btn-secondary group-invite-btn';
+    kt.textContent = '🔑 Invite';
+    kt.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openGroupKeytimeModal(g.id, g.name);
+    };
+    right.append(count, kt);
+    summary.append(title, right);
     details.append(summary);
 
     // Member list — non-friends (and not me) get an Add button.
@@ -995,23 +1049,19 @@ function renderGroups({ groups, invites }) {
         }
         if (!actions.children.length) actions = null;
       }
-      const label = isMe ? `${m.username} (you)` : m.username;
+      const label = isMe ? `👤 ${m.username} (you)` : `👤 ${m.username}`;
       memberUl.append(friendRow(label, '', actions));
     });
     details.append(memberUl);
 
-    // Group actions.
+    // Group actions (the key-time invite now lives on the summary line above).
     const actions = document.createElement('div');
     actions.className = 'group-actions';
-    const kt = document.createElement('button');
-    kt.className = 'btn btn-secondary';
-    kt.textContent = '🔑 Invite group';
-    kt.onclick = () => openGroupKeytimeModal(g.id, g.name);
     const addFr = document.createElement('button');
     addFr.className = 'btn btn-secondary';
     addFr.textContent = 'Add friends';
     addFr.onclick = () => openGroupInviteModal(g.id, g.name);
-    actions.append(kt, addFr);
+    actions.append(addFr);
     if (g.isOwner) {
       const del = document.createElement('button');
       del.className = 'btn btn-decline';
