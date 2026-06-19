@@ -748,13 +748,17 @@ function inviteItem(inv, { incoming }) {
 
   const times = document.createElement('div');
   times.className = 'invite-times';
-  let t = `sent ${fmtTime(inv.createdAt)}`;
-  // Per-person responded line — skip for collapsed outgoing group rows.
+  const sent = document.createElement('div');
+  sent.textContent = `sent ${fmtTime(inv.createdAt)}`;
+  times.append(sent);
+  // Per-person responded line on its own row, so a long name doesn't crowd the
+  // "sent" timestamp. Skipped for collapsed outgoing group rows.
   if (inv.respondedAt && (!isGroup || incoming)) {
     const who = inv.respondedBy && inv.respondedBy === state.user?.id ? 'you' : inv.user.username;
-    t += ` · ${who} ${inv.status} ${fmtTime(inv.respondedAt)}`;
+    const resp = document.createElement('div');
+    resp.textContent = `${who} ${inv.status} · ${fmtTime(inv.respondedAt)}`;
+    times.append(resp);
   }
-  times.textContent = t;
   li.append(times);
 
   // Group key-time aggregate: "X/Y in" + a collapsible per-member breakdown.
@@ -783,7 +787,7 @@ function inviteItem(inv, { incoming }) {
             const r = document.createElement('div');
             r.className = 'event-member';
             const n = document.createElement('span');
-            n.textContent = m.user.username;
+            n.textContent = `👤 ${m.user.username}`;
             const s = document.createElement('span');
             s.className = `invite-status ${m.status}`;
             s.textContent = m.status;

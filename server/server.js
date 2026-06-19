@@ -158,7 +158,7 @@ app.post('/api/friends/request', async (req, res) => {
     await store.saveFriendship(existing);
     await pushToUser(target.id, {
       title: '🔑 Friend added',
-      body: `${me.username} accepted your friend request.`,
+      body: `👤 ${me.username} accepted your friend request.`,
       data: { url: './' },
     });
     return res.json({ status: 'accepted', user: publicUser(target) });
@@ -167,7 +167,7 @@ app.post('/api/friends/request', async (req, res) => {
   await store.createFriendship({ requester: me.id, addressee: target.id });
   await pushToUser(target.id, {
     title: '🔑 Friend request',
-    body: `${me.username} wants to be your friend.`,
+    body: `👤 ${me.username} wants to be your friend.`,
     data: { url: './?friends=1' },
   });
   res.json({ status: 'pending', user: publicUser(target) });
@@ -186,7 +186,7 @@ app.post('/api/friends/respond', async (req, res) => {
     await store.saveFriendship(f);
     await pushToUser(f.requester, {
       title: '🔑 Friend added',
-      body: `${me.username} accepted your friend request.`,
+      body: `👤 ${me.username} accepted your friend request.`,
       data: { url: './' },
     });
     return res.json({ status: 'accepted' });
@@ -346,6 +346,13 @@ app.post('/api/invite/dismiss', async (req, res) => {
   // Hide from my own list only — the other party keeps seeing it. Once both
   // sides have dismissed it, drop the record entirely.
   const hideFromMe = async (inv) => {
+    // If I'm the recipient and never responded, dismissing it counts as a
+    // decline so the sender (and the rest of a group) see it as declined.
+    if (inv.to === me.id && inv.status === 'pending') {
+      inv.status = 'declined';
+      inv.respondedAt = Date.now();
+      inv.respondedBy = me.id;
+    }
     inv.hiddenFor = [...new Set([...(inv.hiddenFor || []), me.id])];
     if (inv.hiddenFor.includes(inv.from) && inv.hiddenFor.includes(inv.to)) {
       await store.removeInvite(inv.id);
@@ -543,6 +550,9 @@ app.post('/api/groups/delete', async (req, res) => {
   if (!g) return res.status(404).json({ error: 'no such group' });
   if (g.ownerId !== me.id) return res.status(403).json({ error: 'only the creator can delete' });
   for (const gi of store.groupInvitesForGroup(g.id)) await store.removeGroupInvite(gi.id);
+  // Also clear any key-time invites tied to this group so they don't linger as
+  // orphaned (group-less) invites in people's lists.
+  for (const inv of store.invitesForGroup(g.id)) await store.removeInvite(inv.id);
   await store.removeGroup(g.id);
   res.json({ ok: true });
 });

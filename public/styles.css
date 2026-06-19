@@ -89,6 +89,9 @@ html, body {
 }
 .subtab:hover { color: var(--text); }
 .subtab.active { background: var(--accent); color: #fff; }
+/* Keep both sub-panels the same height so switching Friends/Groups doesn't make
+   the card jump (the Friends panel is otherwise taller thanks to the QR row). */
+#friends-card [data-subpanel] { min-height: 190px; }
 
 .header { text-align: center; margin-top: 8px; }
 .header h1 { margin: 0; font-size: 2rem; letter-spacing: -0.02em; }
@@ -175,7 +178,6 @@ html, body {
 
 /* Status */
 .status-row { display: flex; justify-content: space-between; align-items: center; }
-.label { color: var(--text-dim); font-size: 0.9rem; }
 .status-pill {
   font-size: 0.85rem;
   font-weight: 600;
@@ -412,7 +414,7 @@ html, body {
 .invite-status.accepted { background: rgba(34,197,94,0.15); color: var(--ok); }
 .invite-status.declined { background: rgba(239,68,68,0.15); color: var(--danger); }
 .invite-note { font-size: 0.9rem; font-style: italic; color: var(--text); }
-.invite-times { font-size: 0.75rem; color: var(--text-dim); }
+.invite-times { font-size: 0.75rem; color: var(--text-dim); display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
 .invite-item .actions { display: flex; gap: 8px; margin-top: 2px; }
 .invite-item .actions .btn { flex: 0 0 auto; padding: 7px 12px; font-size: 0.85rem; }
 
@@ -544,14 +546,6 @@ html, body {
 
 /* Group context + aggregate on key-time invites */
 .invite-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.group-badge {
-  font-size: 0.75rem;
-  font-weight: 600;
-  background: rgba(99, 102, 241, 0.18);
-  color: var(--accent-2);
-  padding: 2px 9px;
-  border-radius: 999px;
-}
 .invite-from { font-size: 0.78rem; color: var(--text-dim); }
 .event-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .event-count { font-size: 0.82rem; font-weight: 600; color: var(--ok); }
