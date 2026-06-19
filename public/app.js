@@ -61,6 +61,7 @@ const els = {
   appBody: $('app-body'),
   accountBar: $('account-bar'),
   accountName: $('account-name'),
+  accountCreated: $('account-created'),
   logoutBtn: $('logout-btn'),
   friendsCard: $('friends-card'),
   friendUsername: $('friend-username'),
@@ -111,6 +112,7 @@ const state = {
   id: localStorage.getItem(ID_KEY) || null,
   token: localStorage.getItem(TOKEN_KEY) || null,
   user: null,
+  accountCreatedAt: null, // when this account was created (epoch ms)
   hasPassword: false,
   authMode: 'register', // or 'login'
   config: null,
@@ -705,8 +707,9 @@ function inviteItem(inv, { incoming }) {
   const name = document.createElement('span');
   name.className = 'name';
   // For a group key time the group is the subject, flagged with a 👥 emoji;
-  // who sent it goes in the context line below. 1:1 invites show the person.
-  name.textContent = isGroup ? `👥 ${inv.group.name}` : inv.user.username;
+  // who sent it goes in the context line below. 1:1 invites show the person
+  // with a single-person 👤 emoji.
+  name.textContent = isGroup ? `👥 ${inv.group.name}` : `👤 ${inv.user.username}`;
 
   const right = document.createElement('span');
   right.className = 'invite-head-right';
@@ -718,15 +721,17 @@ function inviteItem(inv, { incoming }) {
     status.textContent = inv.status;
     right.append(status);
   }
+
+  head.append(name, right);
+  li.append(head);
+
+  // Dismiss sits in the top-right corner of the card (not inline by the name).
   const dismiss = document.createElement('button');
   dismiss.className = 'invite-dismiss';
   dismiss.textContent = '✕';
   dismiss.setAttribute('aria-label', 'Dismiss');
   dismiss.onclick = () => (isGroup ? dismissEvent(inv.event.id) : dismissInvite(inv.id));
-  right.append(dismiss);
-
-  head.append(name, right);
-  li.append(head);
+  li.append(dismiss);
 
   // Group context: who sent it (for incoming invites).
   if (isGroup && incoming) {
@@ -1294,9 +1299,10 @@ async function doAuth(e) {
   els.authSubmit.disabled = true;
   try {
     const path = state.authMode === 'register' ? '/api/register' : '/api/login';
-    const { token, user } = await api(path, 'POST', { username, password });
+    const { token, user, createdAt } = await api(path, 'POST', { username, password });
     state.token = token;
     state.user = user;
+    state.accountCreatedAt = createdAt || null;
     state.hasPassword = true;
     localStorage.setItem(TOKEN_KEY, token);
     showApp();
@@ -1332,6 +1338,20 @@ async function saveUsername() {
     els.nameMsg.textContent = err.detail || 'Could not update username.';
   }
   setTimeout(() => { els.nameMsg.textContent = ''; }, 3000);
+}
+
+function renderAccountCreated() {
+  if (!els.accountCreated) return;
+  if (state.accountCreatedAt) {
+    const d = new Date(state.accountCreatedAt).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    els.accountCreated.textContent = `Account created on ${d}.`;
+  } else {
+    els.accountCreated.textContent = '';
+  }
 }
 
 function renderPasswordSection() {
@@ -1391,6 +1411,7 @@ async function startApp() {
   if (params.get('keytime') === '1') showBanner();
 
   renderPasswordSection();
+  renderAccountCreated();
   els.nameInput.value = state.user?.username || '';
   await ensureSubscription();
   await refreshState();
@@ -1513,8 +1534,9 @@ async function init() {
   // Gate on auth: a stored token must still be valid.
   if (state.token) {
     try {
-      const { user, hasPassword } = await api('/api/me');
+      const { user, hasPassword, createdAt } = await api('/api/me');
       state.user = user;
+      state.accountCreatedAt = createdAt || null;
       state.hasPassword = Boolean(hasPassword);
       renderPasswordSection();
       showApp();

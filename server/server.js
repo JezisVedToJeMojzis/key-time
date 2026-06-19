@@ -69,7 +69,7 @@ app.post('/api/register', async (req, res) => {
     username,
     passwordHash: auth.hashPassword(password),
   });
-  res.json({ token: auth.signToken(user.id), user: publicUser(user) });
+  res.json({ token: auth.signToken(user.id), user: publicUser(user), createdAt: user.createdAt });
 });
 
 // Log in from any device with username + password.
@@ -80,7 +80,7 @@ app.post('/api/login', (req, res) => {
   if (!user || !user.passwordHash || !auth.verifyPassword(password || '', user.passwordHash)) {
     return res.status(401).json({ error: 'wrong username or password' });
   }
-  res.json({ token: auth.signToken(user.id), user: publicUser(user) });
+  res.json({ token: auth.signToken(user.id), user: publicUser(user), createdAt: user.createdAt });
 });
 
 // Change the signed-in account's username (must stay unique).
@@ -115,7 +115,7 @@ app.post('/api/password', async (req, res) => {
 app.get('/api/me', (req, res) => {
   const user = requireUser(req, res);
   if (!user) return;
-  res.json({ user: publicUser(user), hasPassword: Boolean(user.passwordHash) });
+  res.json({ user: publicUser(user), hasPassword: Boolean(user.passwordHash), createdAt: user.createdAt });
 });
 
 // --- Friends -------------------------------------------------------------
@@ -297,8 +297,8 @@ app.post('/api/invite', async (req, res) => {
   await pushToUser(friend.id, {
     title: '🔑 Wanna have a key time?',
     body: message
-      ? `${me.username}: ${message}`
-      : `${me.username} is inviting you to have key time together.`,
+      ? `👤 ${me.username}: ${message}`
+      : `👤 ${me.username} is inviting you to have key time together.`,
     data: { url: './?invites=1' },
   });
   res.json({ id: inv.id, status: inv.status, user: publicUser(friend) });
@@ -328,10 +328,10 @@ app.post('/api/invite/respond', async (req, res) => {
     let payload;
     if (isRecipient) {
       payload = accept
-        ? { title: `🔑 ${me.username} is in!`, body: `${me.username} accepted your key time invite.` }
-        : { title: `🔑 ${me.username} can't right now`, body: `${me.username} declined your key time invite.` };
+        ? { title: `🔑 👤 ${me.username} is in!`, body: `👤 ${me.username} accepted your key time invite.` }
+        : { title: `🔑 👤 ${me.username} can't right now`, body: `👤 ${me.username} declined your key time invite.` };
     } else {
-      payload = { title: `🔑 ${me.username} cancelled`, body: `${me.username} cancelled the key time invite.` };
+      payload = { title: `🔑 👤 ${me.username} cancelled`, body: `👤 ${me.username} cancelled the key time invite.` };
     }
     payload.data = { url: './?invites=1' };
     await pushToUser(other.id, payload);

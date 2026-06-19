@@ -126,7 +126,6 @@ html, body {
   align-items: center;
   justify-content: center;
   font-size: 2.3rem;
-  box-shadow: 0 10px 26px rgba(79, 70, 229, 0.45);
 }
 #auth-screen h2 { font-size: 1.5rem; margin: 0 0 8px; }
 .auth-sub {
@@ -274,6 +273,8 @@ html, body {
 .interval-input select:focus { outline: none; border-color: var(--accent); }
 
 .hint { color: var(--text-dim); font-size: 0.85rem; margin: 10px 0 0; min-height: 1em; }
+/* Account-created line sits right under the Profile heading. */
+.account-created { margin: -6px 0 4px; }
 
 /* "Enable notifications" prompt: centred text with a tidy button below it. */
 .enable-hint {
@@ -389,6 +390,7 @@ html, body {
 
 /* Invite items (richer rows with note + timestamps) */
 .invite-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -396,9 +398,13 @@ html, body {
   border-radius: 10px;
   padding: 12px 14px;
 }
-.invite-item .invite-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+/* Leave room on the right so the corner ✕ never sits on top of the status pill. */
+.invite-item .invite-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-right: 24px; }
 .invite-head-right { display: flex; align-items: center; gap: 8px; }
 .invite-dismiss {
+  position: absolute;
+  top: 8px;
+  right: 10px;
   border: none;
   background: transparent;
   color: var(--text-dim);
