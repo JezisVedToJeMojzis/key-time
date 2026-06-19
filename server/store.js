@@ -315,13 +315,13 @@ export function invitesByEvent(eventId) {
   return [...data.invites.values()].filter((i) => i.eventId === eventId);
 }
 
-export async function createInvite({ from, to, message = '', groupId = null, eventId = null }) {
+export async function createInvite({ from, to, message = '', groupId = null, eventId = null, status = 'pending' }) {
   const inv = {
     id: crypto.randomUUID(),
     from,
     to,
     message,
-    status: 'pending',
+    status,
     createdAt: Date.now(),
     respondedAt: null,
     respondedBy: null,

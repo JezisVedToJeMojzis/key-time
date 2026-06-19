@@ -123,43 +123,52 @@
     <section class="card" id="friends-card" data-panel="friends">
       <h2>Peeps</h2>
 
-      <div class="friend-add">
-        <input id="friend-username" type="text" autocapitalize="none" spellcheck="false" placeholder="add by username" maxlength="20" />
-        <button id="friend-add-btn" class="btn btn-secondary">Add</button>
-      </div>
-      <p id="friend-msg" class="hint"></p>
+      <!-- Sub-tabs: Friends vs Groups (only one visible at a time) -->
+      <nav class="subtabs" id="peeps-subtabs">
+        <button class="subtab active" type="button" data-subtab="friends">Friends</button>
+        <button class="subtab" type="button" data-subtab="groups">Groups</button>
+      </nav>
 
-      <details id="qr-details">
-        <summary>Show my QR code</summary>
-        <div class="qr-wrap">
-          <div id="qr-box" class="qr-box"></div>
-          <p class="hint">Friends scan this with their camera to add you.</p>
+      <div data-subpanel="friends">
+        <div class="friend-add">
+          <input id="friend-username" type="text" autocapitalize="none" spellcheck="false" placeholder="add by username" maxlength="20" />
+          <button id="friend-add-btn" class="btn btn-secondary">Add</button>
         </div>
-      </details>
+        <p id="friend-msg" class="hint"></p>
 
-      <div id="requests-section" class="hidden">
-        <h3 class="subhead">Requests</h3>
-        <ul id="requests-list" class="friend-list"></ul>
+        <details id="qr-details">
+          <summary>Show my QR code</summary>
+          <div class="qr-wrap">
+            <div id="qr-box" class="qr-box"></div>
+            <p class="hint">Friends scan this with their camera to add you.</p>
+          </div>
+        </details>
+
+        <div id="requests-section" class="hidden">
+          <h3 class="subhead">Requests</h3>
+          <ul id="requests-list" class="friend-list"></ul>
+        </div>
+
+        <h3 class="subhead">Your friends</h3>
+        <ul id="friends-list" class="friend-list"></ul>
+        <p id="friends-empty" class="hint">No friends yet — share your QR code above.</p>
       </div>
 
-      <h3 class="subhead">Your friends</h3>
-      <ul id="friends-list" class="friend-list"></ul>
-      <p id="friends-empty" class="hint">No friends yet — share your QR code above.</p>
+      <div data-subpanel="groups" class="hidden">
+        <div class="friend-add">
+          <input id="group-name" type="text" maxlength="30" placeholder="new group name" />
+          <button id="group-create-btn" class="btn btn-secondary">Create</button>
+        </div>
+        <p id="group-msg" class="hint"></p>
 
-      <h3 class="subhead">Groups</h3>
-      <div class="friend-add">
-        <input id="group-name" type="text" maxlength="30" placeholder="new group name" />
-        <button id="group-create-btn" class="btn btn-secondary">Create</button>
+        <div id="group-invites-section" class="hidden">
+          <h4 class="subhead group-subhead">Group invites</h4>
+          <ul id="group-invites" class="friend-list"></ul>
+        </div>
+
+        <ul id="groups-list" class="groups"></ul>
+        <p id="groups-empty" class="hint">No groups yet — create one and invite friends.</p>
       </div>
-      <p id="group-msg" class="hint"></p>
-
-      <div id="group-invites-section" class="hidden">
-        <h4 class="subhead group-subhead">Group invites</h4>
-        <ul id="group-invites" class="friend-list"></ul>
-      </div>
-
-      <ul id="groups-list" class="groups"></ul>
-      <p id="groups-empty" class="hint">No groups yet — create one and invite friends.</p>
     </section>
 
     <!-- Key time invites (shown only when there are any) -->

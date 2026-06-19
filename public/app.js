@@ -665,8 +665,9 @@ function inviteItem(inv, { incoming }) {
   head.className = 'invite-head';
   const name = document.createElement('span');
   name.className = 'name';
-  // An outgoing group blast represents the whole group, not a single person.
-  name.textContent = isGroup && !incoming ? inv.group.name : inv.user.username;
+  // For a group key time the group is the subject (shown once, in the head);
+  // who sent it goes in the context line below. 1:1 invites show the person.
+  name.textContent = isGroup ? inv.group.name : inv.user.username;
 
   const right = document.createElement('span');
   right.className = 'invite-head-right';
@@ -694,7 +695,8 @@ function inviteItem(inv, { incoming }) {
     ctx.className = 'invite-group';
     const badge = document.createElement('span');
     badge.className = 'group-badge';
-    badge.textContent = `👥 ${inv.group.name}`;
+    // The group name is already in the head — the badge just flags the type.
+    badge.textContent = '👥 Group key time';
     ctx.append(badge);
     if (incoming) {
       const from = document.createElement('span');
@@ -768,12 +770,12 @@ function inviteItem(inv, { incoming }) {
     li.append(row, responses);
   }
 
-  // Action buttons. Once declined there's nothing left to do.
-  if (inv.status !== 'declined') {
-    const actions = document.createElement('div');
-    actions.className = 'actions';
-    if (incoming) {
-      // Recipient: accept (unless already in) and/or decline.
+  // Action buttons.
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  if (incoming) {
+    // Recipient: accept (unless already in) and/or decline. Nothing once declined.
+    if (inv.status !== 'declined') {
       if (inv.status !== 'accepted') {
         const acc = document.createElement('button');
         acc.className = 'btn btn-accept';
@@ -786,16 +788,27 @@ function inviteItem(inv, { incoming }) {
       dec.textContent = 'Decline';
       dec.onclick = () => respondInvite(inv.id, false);
       actions.append(dec);
-    } else if (!isGroup) {
-      // Sender of a 1:1 invite can cancel; group blasts are cleared via ✕.
-      const cancel = document.createElement('button');
-      cancel.className = 'btn btn-decline';
-      cancel.textContent = 'Cancel';
-      cancel.onclick = () => respondInvite(inv.id, false);
-      actions.append(cancel);
     }
-    if (actions.children.length) li.append(actions);
+  } else if (isGroup) {
+    // Initiator of a group blast can drop out (or rejoin) without cancelling the
+    // key time for everyone else; the whole blast is cleared via the ✕ instead.
+    if (inv.event?.myInviteId) {
+      const inGroup = inv.event.myStatus === 'accepted';
+      const toggle = document.createElement('button');
+      toggle.className = inGroup ? 'btn btn-decline' : 'btn btn-accept';
+      toggle.textContent = inGroup ? 'Drop out' : "I'm back in";
+      toggle.onclick = () => respondInvite(inv.event.myInviteId, !inGroup);
+      actions.append(toggle);
+    }
+  } else if (inv.status !== 'declined') {
+    // Sender of a 1:1 invite can cancel.
+    const cancel = document.createElement('button');
+    cancel.className = 'btn btn-decline';
+    cancel.textContent = 'Cancel';
+    cancel.onclick = () => respondInvite(inv.id, false);
+    actions.append(cancel);
   }
+  if (actions.children.length) li.append(actions);
 
   return li;
 }
@@ -961,14 +974,25 @@ function renderGroups({ groups, invites }) {
     g.members.forEach((m) => {
       const isMe = m.id === state.user?.id;
       let actions = null;
-      if (!isMe && !myFriendIds.has(m.id)) {
+      if (!isMe) {
         actions = document.createElement('span');
         actions.className = 'actions';
-        const add = document.createElement('button');
-        add.className = 'btn btn-secondary';
-        add.textContent = 'Add friend';
-        add.onclick = () => addFriend(m.username);
-        actions.append(add);
+        if (!myFriendIds.has(m.id)) {
+          const add = document.createElement('button');
+          add.className = 'btn btn-secondary';
+          add.textContent = 'Add friend';
+          add.onclick = () => addFriend(m.username);
+          actions.append(add);
+        }
+        // Only the creator can remove other members.
+        if (g.isOwner) {
+          const kick = document.createElement('button');
+          kick.className = 'btn btn-decline';
+          kick.textContent = 'Remove';
+          kick.onclick = () => kickMember(g.id, m.id, m.username);
+          actions.append(kick);
+        }
+        if (!actions.children.length) actions = null;
       }
       const label = isMe ? `${m.username} (you)` : m.username;
       memberUl.append(friendRow(label, '', actions));
@@ -1016,6 +1040,8 @@ async function createGroup() {
     els.groupName.value = '';
     els.groupMsg.textContent = `Group "${g.name}" created.`;
     await refreshGroups();
+    // Jump straight into picking who to add.
+    openGroupInviteModal(g.id, g.name);
   } catch (err) {
     els.groupMsg.textContent = err.detail || 'Could not create group.';
   }
@@ -1028,6 +1054,17 @@ async function respondGroupInvite(groupInviteId, accept) {
     await refreshGroups();
   } catch {
     /* ignore */
+  }
+}
+
+async function kickMember(groupId, userId, username) {
+  if (!confirm(`Remove ${username} from this group?`)) return;
+  try {
+    await api('/api/groups/kick', 'POST', { groupId, userId });
+    await refreshGroups();
+  } catch (err) {
+    els.groupMsg.textContent = err.detail || 'Could not remove that member.';
+    setTimeout(() => { els.groupMsg.textContent = ''; }, 4000);
   }
 }
 
@@ -1073,6 +1110,9 @@ function openGroupInviteModal(groupId, name) {
     label.append(cb, span);
     els.groupInviteFriends.append(label);
   });
+  els.groupInviteEmpty.textContent = (state.friends || []).length
+    ? 'All your friends are already in this group.'
+    : 'Add some friends first, then add them here.';
   els.groupInviteEmpty.classList.toggle('hidden', candidates.length > 0);
   els.groupInviteModal.classList.remove('hidden');
 }
@@ -1271,6 +1311,16 @@ function showTab(name) {
   );
 }
 
+// Sub-tabs within the Peeps card: Friends vs Groups (one visible at a time).
+function showSubTab(name) {
+  document.querySelectorAll('[data-subpanel]').forEach((el) =>
+    el.classList.toggle('hidden', el.dataset.subpanel !== name)
+  );
+  document.querySelectorAll('.subtab').forEach((t) =>
+    t.classList.toggle('active', t.dataset.subtab === name)
+  );
+}
+
 // --- Init ----------------------------------------------------------------
 async function startApp() {
   if (state.started) return;
@@ -1381,6 +1431,12 @@ async function init() {
     tab.addEventListener('click', () => showTab(tab.dataset.tab));
   });
   showTab('timer');
+
+  // Peeps sub-tabs (Friends / Groups)
+  document.querySelectorAll('#peeps-subtabs .subtab').forEach((tab) => {
+    tab.addEventListener('click', () => showSubTab(tab.dataset.subtab));
+  });
+  showSubTab('friends');
 
   // restore saved interval into the form
   const savedInterval = Number(localStorage.getItem(INTERVAL_KEY));

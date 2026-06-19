@@ -212,13 +212,24 @@ app.get('/api/invites', (req, res) => {
   if (!me) return;
   const visible = (i) => !(i.hiddenFor || []).includes(me.id);
 
-  // Group key-time invite aggregate: the sender is auto-counted as accepted, so
-  // total/accepted both include them on top of the individual recipients.
+  // Group key-time invite aggregate. The initiator participates via a self-invite
+  // (to === from), so they're counted like everyone else. Legacy events created
+  // before self-invites existed get the old +1-for-the-sender fallback.
   const eventInfo = (eventId) => {
     if (!eventId) return null;
     const all = store.invitesByEvent(eventId);
-    const accepted = all.filter((x) => x.status === 'accepted').length + 1;
-    return { id: eventId, total: all.length + 1, accepted };
+    const senderId = all[0]?.from;
+    const hasSelf = all.some((i) => i.to === senderId);
+    const base = hasSelf ? 0 : 1;
+    const accepted = all.filter((x) => x.status === 'accepted').length + base;
+    const mine = all.find((i) => i.to === me.id);
+    return {
+      id: eventId,
+      total: all.length + base,
+      accepted,
+      myInviteId: mine?.id || null,
+      myStatus: mine?.status || null,
+    };
   };
   const groupInfo = (groupId) => {
     if (!groupId) return null;
@@ -243,7 +254,14 @@ app.get('/api/invites', (req, res) => {
       : null;
   };
 
-  const incoming = store.invitesTo(me.id).filter(visible).map((i) => shape(i, i.from)).filter(Boolean);
+  // A group initiator's self-invite (from === to === me) belongs in their
+  // outgoing row, not incoming — exclude it here.
+  const incoming = store
+    .invitesTo(me.id)
+    .filter(visible)
+    .filter((i) => i.from !== me.id)
+    .map((i) => shape(i, i.from))
+    .filter(Boolean);
 
   // Outgoing: collapse a whole-group blast (shared eventId) into one row.
   const seenEvents = new Set();
@@ -305,7 +323,8 @@ app.post('/api/invite/respond', async (req, res) => {
 
   const otherId = isRecipient ? inv.from : inv.to;
   const other = store.getUser(otherId);
-  if (other) {
+  // Skip notifying yourself (a group initiator's self-invite has from === to).
+  if (other && other.id !== me.id) {
     let payload;
     if (isRecipient) {
       payload = accept
@@ -366,9 +385,15 @@ app.get('/api/event', (req, res) => {
 
   const g = store.getGroup(all[0].groupId);
   const sender = store.getUser(senderId);
+  const selfInvite = all.find((i) => i.to === senderId); // initiator's own RSVP
   const members = [];
-  if (sender) members.push({ user: publicUser(sender), status: 'accepted' }); // initiator
+  // Initiator first, carrying their own status (accepted by default; declined if
+  // they later dropped out). Legacy events without a self-invite default to in.
+  if (sender) {
+    members.push({ user: publicUser(sender), status: selfInvite ? selfInvite.status : 'accepted' });
+  }
   for (const i of all) {
+    if (i.to === senderId) continue; // already added as the initiator
     const u = store.getUser(i.to);
     if (u) members.push({ user: publicUser(u), status: i.status });
   }
@@ -477,6 +502,26 @@ app.post('/api/groups/leave', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Creator removes another member from the group.
+app.post('/api/groups/kick', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const g = store.getGroup(req.body?.groupId);
+  if (!g) return res.status(404).json({ error: 'no such group' });
+  if (g.ownerId !== me.id) return res.status(403).json({ error: 'only the creator can remove members' });
+  const userId = req.body?.userId;
+  if (userId === me.id) return res.status(400).json({ error: "you can't remove yourself" });
+  if (!g.members.includes(userId)) return res.status(404).json({ error: 'not a member' });
+  g.members = g.members.filter((id) => id !== userId);
+  await store.saveGroup(g);
+  await pushToUser(userId, {
+    title: '🔑 Removed from group',
+    body: `${me.username} removed you from "${g.name}".`,
+    data: { url: './?friends=1' },
+  });
+  res.json({ ok: true });
+});
+
 app.post('/api/groups/delete', async (req, res) => {
   const me = requireUser(req, res);
   if (!me) return;
@@ -500,10 +545,20 @@ app.post('/api/groups/keytime', async (req, res) => {
   if (!recipients.length) return res.status(400).json({ error: 'no one else in the group yet' });
 
   const eventId = crypto.randomUUID();
+  // The initiator joins their own event as an accepted self-invite, so they can
+  // later drop out (decline) without cancelling the key time for everyone else.
+  await store.createInvite({
+    from: me.id,
+    to: me.id,
+    message,
+    groupId: g.id,
+    eventId,
+    status: 'accepted',
+  });
   for (const uid of recipients) {
     await store.createInvite({ from: me.id, to: uid, message, groupId: g.id, eventId });
     await pushToUser(uid, {
-      title: `🔑 Key time with "${g.name}"`,
+      title: `🔑 Group key time: ${g.name}`,
       body: message
         ? `${me.username}: ${message}`
         : `${me.username} invited "${g.name}" to have key time together.`,
