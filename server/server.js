@@ -230,7 +230,7 @@ app.post('/api/invite', async (req, res) => {
     .find((i) => i.to === friend.id && i.status === 'pending');
   if (dup) return res.status(409).json({ error: 'invite already pending' });
 
-  const message = String(req.body?.message || '').trim().slice(0, 140);
+  const message = String(req.body?.message || '').trim().slice(0, 25);
   const inv = await store.createInvite({ from: me.id, to: friend.id, message });
   await pushToUser(friend.id, {
     title: '🔑 Wanna have a key time?',

@@ -26,15 +26,14 @@ const els = {
   historyList: $('history-list'),
   historyEmpty: $('history-empty'),
   resetBtn: $('reset-btn'),
-  reportCard: $('report-card'),
-  repCount: $('rep-count'),
-  repDuration: $('rep-duration'),
-  repAvg: $('rep-avg'),
-  repRange: $('rep-range'),
-  reportDone: $('report-done'),
   sessionsList: $('sessions-list'),
   sessionsEmpty: $('sessions-empty'),
   endsessionModal: $('endsession-modal'),
+  esCount: $('es-count'),
+  esDuration: $('es-duration'),
+  esAvg: $('es-avg'),
+  esFirst: $('es-first'),
+  esLast: $('es-last'),
   endsessionDesc: $('endsession-desc'),
   endsessionCancel: $('endsession-cancel'),
   endsessionConfirm: $('endsession-confirm'),
@@ -81,6 +80,7 @@ const els = {
   inviteModal: $('invite-modal'),
   inviteModalTitle: $('invite-modal-title'),
   inviteMessage: $('invite-message'),
+  inviteFriends: $('invite-friends'),
   inviteCancel: $('invite-cancel'),
   inviteSend: $('invite-send'),
 };
@@ -96,7 +96,7 @@ const state = {
   hasPassword: false,
   authMode: 'register', // or 'login'
   config: null,
-  inviteTarget: null, // { id, username } while the invite modal is open
+  friends: [],        // latest accepted friends (for the invite picker)
   server: null,       // last /api/state response
   clockOffset: 0,     // serverNow - clientNow
   started: false,     // app (post-login) initialized once
@@ -307,6 +307,7 @@ function updateCountdown() {
     els.countdown.textContent = '--:--:--';
   }
   updateSessionTime();
+  updateLiveNotification();
 }
 
 // Elapsed time since the first key time of the current session (ticks live).
@@ -316,6 +317,36 @@ function updateSessionTime() {
     els.statSession.textContent = fmtLongDuration((Date.now() + state.clockOffset) - hist[0].firedAt);
   } else {
     els.statSession.textContent = '—';
+  }
+}
+
+// While the timer runs, surface it as an ongoing system notification showing
+// the remaining time — visible even with the app in the background. We only
+// re-show when the displayed text changes (minute granularity) to avoid spam.
+let liveNotifText = null;
+async function updateLiveNotification() {
+  if (!('serviceWorker' in navigator) || Notification.permission !== 'granted') return;
+  const s = state.server;
+  const reg = await navigator.serviceWorker.ready;
+
+  if (s?.running && s.nextFireAt) {
+    const remaining = s.nextFireAt - (Date.now() + state.clockOffset);
+    const text = remaining > 0 ? `Key time in ${fmtLongDuration(remaining)}` : 'Key time now!';
+    if (text === liveNotifText) return;
+    liveNotifText = text;
+    reg.showNotification('Key Time ⏳', {
+      body: text,
+      tag: 'keytime-countdown',
+      silent: true,
+      renotify: false,
+      requireInteraction: true,
+      icon: './icons/icon.svg',
+      badge: './icons/icon.svg',
+    });
+  } else if (liveNotifText !== null) {
+    liveNotifText = null;
+    const ns = await reg.getNotifications({ tag: 'keytime-countdown' });
+    ns.forEach((n) => n.close());
   }
 }
 
@@ -333,7 +364,7 @@ function readIntervalMs() {
 }
 
 function fillIntervalInputs(ms) {
-  const units = [86400000, 3600000, 60000];
+  const units = [3600000, 60000];
   for (const u of units) {
     if (ms % u === 0) {
       els.intervalValue.value = String(ms / u);
@@ -346,7 +377,7 @@ function fillIntervalInputs(ms) {
 }
 
 function formatInterval(ms) {
-  const units = [['day', 86400000], ['hour', 3600000], ['minute', 60000]];
+  const units = [['hour', 3600000], ['minute', 60000]];
   for (const [name, u] of units) {
     if (ms % u === 0) {
       const n = ms / u;
@@ -400,8 +431,26 @@ async function fireNow() {
   showBanner();
 }
 
-// --- End session: name it, show report, save to history, then clear -------
+// --- End session: review the summary, name it, save to history, then clear -
 function openEndSessionModal() {
+  const hist = state.server?.history || [];
+  els.esCount.textContent = String(hist.length);
+  if (hist.length) {
+    const first = hist[0].firedAt;
+    const last = hist[hist.length - 1].firedAt;
+    const durationMs = last - first;
+    els.esDuration.textContent = fmtLongDuration(durationMs);
+    els.esAvg.textContent = hist.length > 1
+      ? fmtLongDuration(Math.round(durationMs / (hist.length - 1)))
+      : '—';
+    els.esFirst.textContent = fmtTime(first);
+    els.esLast.textContent = fmtTime(last);
+  } else {
+    els.esDuration.textContent = '—';
+    els.esAvg.textContent = '—';
+    els.esFirst.textContent = '—';
+    els.esLast.textContent = '—';
+  }
   els.endsessionDesc.value = '';
   els.endsessionModal.classList.remove('hidden');
   els.endsessionDesc.focus();
@@ -414,9 +463,8 @@ function closeEndSessionModal() {
 async function confirmEndSession() {
   const description = els.endsessionDesc.value.trim();
   closeEndSessionModal();
-  const { report, state: s } = await api('/api/reset', 'POST', { id: state.id, description });
+  const { state: s } = await api('/api/reset', 'POST', { id: state.id, description });
   applyServerState(s);
-  showReport(report);
   els.banner.classList.add('hidden');
   await refreshSessions();
 }
@@ -452,24 +500,13 @@ function renderSessions(sessions) {
     const gap = s.avgGapMs != null ? fmtLongDuration(s.avgGapMs) : '—';
     stats.innerHTML = `<b>${s.count}</b> key times · <b>${dur}</b> long · avg gap <b>${gap}</b>`;
 
-    li.append(head, stats);
+    const times = document.createElement('div');
+    times.className = 's-stats';
+    times.textContent = `first ${fmtTime(s.first)} · last ${fmtTime(s.last)}`;
+
+    li.append(head, stats, times);
     els.sessionsList.append(li);
   });
-}
-
-function showReport(report) {
-  els.repCount.textContent = String(report.count || 0);
-  if (report.count > 0) {
-    els.repDuration.textContent = fmtLongDuration(report.durationMs);
-    els.repAvg.textContent = report.count > 1 ? fmtLongDuration(report.avgGapMs) : '—';
-    els.repRange.textContent = `First: ${fmtTime(report.first)}  ·  Last: ${fmtTime(report.last)}`;
-  } else {
-    els.repDuration.textContent = '—';
-    els.repAvg.textContent = '—';
-    els.repRange.textContent = 'No key times were recorded this session.';
-  }
-  els.reportCard.classList.remove('hidden');
-  els.reportCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 // --- Friends + QR --------------------------------------------------------
@@ -508,6 +545,7 @@ function friendRow(username, tagText, actions) {
 }
 
 function renderFriends({ friends, incoming, outgoing }) {
+  state.friends = friends;
   els.requestsList.innerHTML = '';
   els.requestsSection.classList.toggle('hidden', incoming.length === 0);
   incoming.forEach((r) => {
@@ -532,7 +570,7 @@ function renderFriends({ friends, incoming, outgoing }) {
     const invite = document.createElement('button');
     invite.className = 'btn btn-secondary';
     invite.textContent = '🔑 Invite';
-    invite.onclick = () => openInviteModal(fr.user.id, fr.user.username);
+    invite.onclick = () => openInviteModal(fr.user.id);
     actions.append(invite);
     els.friendsList.append(friendRow(fr.user.username, '', actions));
   });
@@ -586,10 +624,20 @@ function inviteItem(inv, { incoming }) {
   const name = document.createElement('span');
   name.className = 'name';
   name.textContent = inv.user.username;
+
+  const right = document.createElement('span');
+  right.className = 'invite-head-right';
   const status = document.createElement('span');
   status.className = `invite-status ${inv.status}`;
   status.textContent = inv.status;
-  head.append(name, status);
+  const dismiss = document.createElement('button');
+  dismiss.className = 'invite-dismiss';
+  dismiss.textContent = '✕';
+  dismiss.setAttribute('aria-label', 'Dismiss');
+  dismiss.onclick = () => dismissInvite(inv.id);
+  right.append(status, dismiss);
+
+  head.append(name, right);
   li.append(head);
 
   if (inv.message) {
@@ -608,27 +656,25 @@ function inviteItem(inv, { incoming }) {
   times.textContent = t;
   li.append(times);
 
-  const actions = document.createElement('div');
-  actions.className = 'actions';
-  if (incoming) {
-    // Always offer both — you can change your mind after accepting/declining.
-    const acc = document.createElement('button');
-    acc.className = 'btn btn-accept';
-    acc.textContent = "I'm in";
-    acc.onclick = () => respondInvite(inv.id, true);
+  // Action buttons (incoming only). Once accepted you can still back out, so
+  // only "Decline" remains; once declined there's nothing left to do.
+  if (incoming && inv.status !== 'declined') {
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    if (inv.status !== 'accepted') {
+      const acc = document.createElement('button');
+      acc.className = 'btn btn-accept';
+      acc.textContent = "I'm in";
+      acc.onclick = () => respondInvite(inv.id, true);
+      actions.append(acc);
+    }
     const dec = document.createElement('button');
     dec.className = 'btn btn-decline';
     dec.textContent = 'Decline';
     dec.onclick = () => respondInvite(inv.id, false);
-    actions.append(acc, dec);
+    actions.append(dec);
+    li.append(actions);
   }
-  const dismiss = document.createElement('button');
-  dismiss.className = 'btn btn-decline';
-  dismiss.textContent = '✕';
-  dismiss.setAttribute('aria-label', 'Dismiss');
-  dismiss.onclick = () => dismissInvite(inv.id);
-  actions.append(dismiss);
-  li.append(actions);
 
   return li;
 }
@@ -648,9 +694,24 @@ function renderInvites({ incoming, outgoing }) {
 }
 
 // --- Invite compose modal ------------------------------------------------
-function openInviteModal(userId, username) {
-  state.inviteTarget = { id: userId, username };
-  els.inviteModalTitle.textContent = `Invite ${username} to key time`;
+// Opens the picker with `userId` pre-checked, but you can tick more friends to
+// send the same note to several at once.
+function openInviteModal(userId) {
+  els.inviteFriends.innerHTML = '';
+  (state.friends || []).forEach((fr) => {
+    const label = document.createElement('label');
+    label.className = 'invite-pick';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = fr.user.id;
+    cb.dataset.username = fr.user.username;
+    if (fr.user.id === userId) cb.checked = true;
+    const span = document.createElement('span');
+    span.textContent = fr.user.username;
+    label.append(cb, span);
+    els.inviteFriends.append(label);
+  });
+  els.inviteModalTitle.textContent = 'Invite to key time';
   els.inviteMessage.value = '';
   els.inviteModal.classList.remove('hidden');
   els.inviteMessage.focus();
@@ -658,22 +719,37 @@ function openInviteModal(userId, username) {
 
 function closeInviteModal() {
   els.inviteModal.classList.add('hidden');
-  state.inviteTarget = null;
 }
 
 async function sendInvite() {
-  if (!state.inviteTarget) return;
-  const { id, username } = state.inviteTarget;
+  const targets = [...els.inviteFriends.querySelectorAll('input:checked')].map((c) => ({
+    id: c.value,
+    username: c.dataset.username,
+  }));
+  if (!targets.length) return;
   const message = els.inviteMessage.value.trim();
   closeInviteModal();
   els.friendMsg.textContent = '';
-  try {
-    await api('/api/invite', 'POST', { toUserId: id, message });
-    els.friendMsg.textContent = `Key time invite sent to ${username}.`;
-    await refreshInvites();
-  } catch (err) {
-    els.friendMsg.textContent = err.detail || 'Could not send invite.';
+
+  let sent = 0;
+  const failed = [];
+  for (const t of targets) {
+    try {
+      await api('/api/invite', 'POST', { toUserId: t.id, message });
+      sent++;
+    } catch {
+      failed.push(t.username);
+    }
   }
+
+  if (failed.length) {
+    els.friendMsg.textContent = `Sent ${sent}; couldn't invite ${failed.join(', ')}.`;
+  } else if (sent === 1) {
+    els.friendMsg.textContent = `Key time invite sent to ${targets[0].username}.`;
+  } else {
+    els.friendMsg.textContent = `Key time invite sent to ${sent} friends.`;
+  }
+  await refreshInvites();
   setTimeout(() => { els.friendMsg.textContent = ''; }, 4000);
 }
 
@@ -887,7 +963,6 @@ async function init() {
   els.endsessionModal.addEventListener('click', (e) => {
     if (e.target === els.endsessionModal) closeEndSessionModal();
   });
-  els.reportDone.addEventListener('click', () => els.reportCard.classList.add('hidden'));
   els.bannerStart.addEventListener('click', startTimer);
   els.saveSettings.addEventListener('click', saveSettings);
   els.settingsToggle.addEventListener('click', () => {
