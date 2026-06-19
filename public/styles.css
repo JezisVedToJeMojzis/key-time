@@ -160,6 +160,8 @@ html, body {
   box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
 .card h2 { margin: 0 0 14px; font-size: 1.1rem; }
+/* Heading that shares a row with another element (e.g. the timer status pill). */
+.card-title { margin: 0 !important; }
 
 .hidden { display: none !important; }
 
@@ -424,6 +426,9 @@ html, body {
 
 /* Invite friend picker (multi-select chips) */
 .invite-pick-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); margin: 0 0 10px; }
+/* When the picker is empty, this message replaces the chips — keep a gap before
+   the action buttons below it. */
+#group-invite-empty { margin: 0 0 16px; }
 .invite-friends {
   display: flex;
   flex-wrap: wrap;

@@ -375,6 +375,7 @@ export async function createGroup({ name, ownerId }) {
     name,
     ownerId,
     members: [ownerId],
+    invitedBy: {}, // memberId -> the member who added them (owner has no entry)
     createdAt: Date.now(),
   };
   await save('groups', g);

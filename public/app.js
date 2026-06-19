@@ -984,8 +984,9 @@ function renderGroups({ groups, invites }) {
           add.onclick = () => addFriend(m.username);
           actions.append(add);
         }
-        // Only the creator can remove other members.
-        if (g.isOwner) {
+        // The creator can remove anyone; a member can remove only those they added.
+        const iAddedThem = (g.invitedBy || {})[m.id] === state.user?.id;
+        if (g.isOwner || iAddedThem) {
           const kick = document.createElement('button');
           kick.className = 'btn btn-decline';
           kick.textContent = 'Remove';
@@ -1035,6 +1036,12 @@ async function createGroup() {
   const name = els.groupName.value.trim();
   if (!name) return;
   els.groupMsg.textContent = '';
+  // A group needs people — add at least one friend before creating one.
+  if (!(state.friends || []).length) {
+    els.groupMsg.textContent = 'Add a friend first — you choose who to add when you create a group.';
+    setTimeout(() => { els.groupMsg.textContent = ''; }, 5000);
+    return;
+  }
   try {
     const g = await api('/api/groups', 'POST', { name });
     els.groupName.value = '';

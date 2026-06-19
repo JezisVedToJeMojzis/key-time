@@ -413,6 +413,7 @@ app.get('/api/groups', (req, res) => {
     name: g.name,
     ownerId: g.ownerId,
     isOwner: g.ownerId === me.id,
+    invitedBy: g.invitedBy || {}, // memberId -> who added them
     members: g.members.map((id) => store.getUser(id)).filter(Boolean).map(publicUser),
   }));
   const invites = store
@@ -434,6 +435,9 @@ app.post('/api/groups', async (req, res) => {
   if (!me) return;
   const name = String(req.body?.name || '').trim().replace(/\s+/g, ' ').slice(0, 30);
   if (name.length < 2) return res.status(400).json({ error: 'group name: 2–30 characters' });
+  // A group needs members — require at least one accepted friend to add.
+  const hasFriend = store.friendshipsFor(me.id).some((f) => f.status === 'accepted');
+  if (!hasFriend) return res.status(400).json({ error: 'add a friend first' });
   const g = await store.createGroup({ name, ownerId: me.id });
   res.json({ id: g.id, name: g.name });
 });
@@ -478,6 +482,7 @@ app.post('/api/groups/respond', async (req, res) => {
     const g = store.getGroup(inv.groupId);
     if (g && !g.members.includes(me.id)) {
       g.members.push(me.id);
+      g.invitedBy = { ...(g.invitedBy || {}), [me.id]: inv.from };
       await store.saveGroup(g);
       await pushToUser(inv.from, {
         title: '🔑 Group joined',
@@ -498,21 +503,30 @@ app.post('/api/groups/leave', async (req, res) => {
     return res.status(400).json({ error: 'the creator must delete the group instead' });
   }
   g.members = g.members.filter((id) => id !== me.id);
+  if (g.invitedBy) delete g.invitedBy[me.id];
   await store.saveGroup(g);
   res.json({ ok: true });
 });
 
-// Creator removes another member from the group.
+// Remove a member from the group. The creator can remove anyone; a regular
+// member can remove only people they personally added.
 app.post('/api/groups/kick', async (req, res) => {
   const me = requireUser(req, res);
   if (!me) return;
   const g = store.getGroup(req.body?.groupId);
-  if (!g) return res.status(404).json({ error: 'no such group' });
-  if (g.ownerId !== me.id) return res.status(403).json({ error: 'only the creator can remove members' });
+  if (!g || !g.members.includes(me.id)) return res.status(404).json({ error: 'no such group' });
   const userId = req.body?.userId;
   if (userId === me.id) return res.status(400).json({ error: "you can't remove yourself" });
   if (!g.members.includes(userId)) return res.status(404).json({ error: 'not a member' });
+
+  const invitedBy = g.invitedBy || {};
+  const canRemove = g.ownerId === me.id || invitedBy[userId] === me.id;
+  if (!canRemove) {
+    return res.status(403).json({ error: 'you can only remove members you added' });
+  }
+
   g.members = g.members.filter((id) => id !== userId);
+  if (g.invitedBy) delete g.invitedBy[userId];
   await store.saveGroup(g);
   await pushToUser(userId, {
     title: '🔑 Removed from group',
