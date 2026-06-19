@@ -287,9 +287,11 @@ app.post('/api/invite', async (req, res) => {
   if (!f || f.status !== 'accepted') {
     return res.status(403).json({ error: 'you can only invite friends' });
   }
+  // Only a pending 1:1 invite counts as a duplicate — a pending group blast to
+  // the same person shouldn't block a personal invite.
   const dup = store
     .invitesFrom(me.id)
-    .find((i) => i.to === friend.id && i.status === 'pending');
+    .find((i) => i.to === friend.id && i.status === 'pending' && !i.eventId);
   if (dup) return res.status(409).json({ error: 'invite already pending' });
 
   const message = String(req.body?.message || '').trim().slice(0, 25);
@@ -469,7 +471,7 @@ app.post('/api/groups/invite', async (req, res) => {
   await store.createGroupInvite({ groupId: g.id, from: me.id, to: target.id });
   await pushToUser(target.id, {
     title: '🔑 Group invite',
-    body: `${me.username} invited you to the group "${g.name}".`,
+    body: `👤 ${me.username} invited you to the group "${g.name}".`,
     data: { url: './?friends=1' },
   });
   res.json({ ok: true, user: publicUser(target) });
@@ -493,7 +495,7 @@ app.post('/api/groups/respond', async (req, res) => {
       await store.saveGroup(g);
       await pushToUser(inv.from, {
         title: '🔑 Group joined',
-        body: `${me.username} joined "${g.name}".`,
+        body: `👤 ${me.username} joined "${g.name}".`,
         data: { url: './?friends=1' },
       });
     }
@@ -537,7 +539,7 @@ app.post('/api/groups/kick', async (req, res) => {
   await store.saveGroup(g);
   await pushToUser(userId, {
     title: '🔑 Removed from group',
-    body: `${me.username} removed you from "${g.name}".`,
+    body: `👤 ${me.username} removed you from "${g.name}".`,
     data: { url: './?friends=1' },
   });
   res.json({ ok: true });
@@ -591,8 +593,8 @@ app.post('/api/groups/keytime', async (req, res) => {
     await pushToUser(uid, {
       title: `🔑 Group key time: ${g.name}`,
       body: message
-        ? `${me.username}: ${message}`
-        : `${me.username} invited "${g.name}" to have key time together.`,
+        ? `👤 ${me.username}: ${message}`
+        : `👤 ${me.username} invited "${g.name}" to have key time together.`,
       data: { url: './?invites=1' },
     });
   }
