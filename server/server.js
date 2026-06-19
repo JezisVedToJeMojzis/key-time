@@ -1,6 +1,7 @@
 // Key Time server: serves the PWA and exposes the timer/push API.
 import express from 'express';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 // Load .env if present (Node 20.6+). Harmless if the file is missing.
@@ -210,6 +211,21 @@ app.get('/api/invites', (req, res) => {
   const me = requireUser(req, res);
   if (!me) return;
   const visible = (i) => !(i.hiddenFor || []).includes(me.id);
+
+  // Group key-time invite aggregate: the sender is auto-counted as accepted, so
+  // total/accepted both include them on top of the individual recipients.
+  const eventInfo = (eventId) => {
+    if (!eventId) return null;
+    const all = store.invitesByEvent(eventId);
+    const accepted = all.filter((x) => x.status === 'accepted').length + 1;
+    return { id: eventId, total: all.length + 1, accepted };
+  };
+  const groupInfo = (groupId) => {
+    if (!groupId) return null;
+    const g = store.getGroup(groupId);
+    return g ? { id: g.id, name: g.name } : null;
+  };
+
   const shape = (i, otherId) => {
     const u = store.getUser(otherId);
     return u
@@ -221,11 +237,26 @@ app.get('/api/invites', (req, res) => {
           respondedAt: i.respondedAt || null,
           respondedBy: i.respondedBy || null,
           user: publicUser(u),
+          group: groupInfo(i.groupId),
+          event: eventInfo(i.eventId),
         }
       : null;
   };
+
   const incoming = store.invitesTo(me.id).filter(visible).map((i) => shape(i, i.from)).filter(Boolean);
-  const outgoing = store.invitesFrom(me.id).filter(visible).map((i) => shape(i, i.to)).filter(Boolean);
+
+  // Outgoing: collapse a whole-group blast (shared eventId) into one row.
+  const seenEvents = new Set();
+  const outgoing = [];
+  for (const i of store.invitesFrom(me.id).filter(visible)) {
+    if (i.eventId) {
+      if (seenEvents.has(i.eventId)) continue;
+      seenEvents.add(i.eventId);
+    }
+    const row = shape(i, i.to);
+    if (row) outgoing.push(row);
+  }
+
   res.json({ incoming, outgoing });
 });
 
@@ -292,19 +323,194 @@ app.post('/api/invite/respond', async (req, res) => {
 app.post('/api/invite/dismiss', async (req, res) => {
   const me = requireUser(req, res);
   if (!me) return;
+
+  // Hide from my own list only — the other party keeps seeing it. Once both
+  // sides have dismissed it, drop the record entirely.
+  const hideFromMe = async (inv) => {
+    inv.hiddenFor = [...new Set([...(inv.hiddenFor || []), me.id])];
+    if (inv.hiddenFor.includes(inv.from) && inv.hiddenFor.includes(inv.to)) {
+      await store.removeInvite(inv.id);
+    } else {
+      await store.saveInvite(inv);
+    }
+  };
+
+  // A whole group blast can be cleared from my list by its eventId.
+  if (req.body?.eventId) {
+    const mine = store
+      .invitesByEvent(req.body.eventId)
+      .filter((i) => i.from === me.id || i.to === me.id);
+    if (!mine.length) return res.status(404).json({ error: 'no such invite' });
+    for (const inv of mine) await hideFromMe(inv);
+    return res.json({ ok: true });
+  }
+
   const inv = store.getInvite(req.body?.inviteId);
   if (!inv || (inv.from !== me.id && inv.to !== me.id)) {
     return res.status(404).json({ error: 'no such invite' });
   }
-  // Hide from my own list only — the other party keeps seeing it. Once both
-  // sides have dismissed it, drop the record entirely.
-  inv.hiddenFor = [...new Set([...(inv.hiddenFor || []), me.id])];
-  if (inv.hiddenFor.includes(inv.from) && inv.hiddenFor.includes(inv.to)) {
-    await store.removeInvite(inv.id);
-  } else {
-    await store.saveInvite(inv);
-  }
+  await hideFromMe(inv);
   res.json({ ok: true });
+});
+
+// Per-member breakdown of a group key-time invite (lazy-loaded behind a toggle).
+app.get('/api/event', (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const all = store.invitesByEvent(req.query?.eventId);
+  if (!all.length) return res.status(404).json({ error: 'no such event' });
+  const senderId = all[0].from;
+  // Only participants (the sender or a recipient) may see who responded.
+  const isParticipant = senderId === me.id || all.some((i) => i.to === me.id);
+  if (!isParticipant) return res.status(403).json({ error: 'not your event' });
+
+  const g = store.getGroup(all[0].groupId);
+  const sender = store.getUser(senderId);
+  const members = [];
+  if (sender) members.push({ user: publicUser(sender), status: 'accepted' }); // initiator
+  for (const i of all) {
+    const u = store.getUser(i.to);
+    if (u) members.push({ user: publicUser(u), status: i.status });
+  }
+  res.json({
+    group: g ? { id: g.id, name: g.name } : null,
+    from: sender ? publicUser(sender) : null,
+    members,
+  });
+});
+
+// --- Groups --------------------------------------------------------------
+app.get('/api/groups', (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const groups = store.groupsForUser(me.id).map((g) => ({
+    id: g.id,
+    name: g.name,
+    ownerId: g.ownerId,
+    isOwner: g.ownerId === me.id,
+    members: g.members.map((id) => store.getUser(id)).filter(Boolean).map(publicUser),
+  }));
+  const invites = store
+    .groupInvitesTo(me.id)
+    .filter((i) => i.status === 'pending')
+    .map((i) => {
+      const g = store.getGroup(i.groupId);
+      const from = store.getUser(i.from);
+      return g && from
+        ? { groupInviteId: i.id, group: { id: g.id, name: g.name }, user: publicUser(from) }
+        : null;
+    })
+    .filter(Boolean);
+  res.json({ groups, invites });
+});
+
+app.post('/api/groups', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const name = String(req.body?.name || '').trim().replace(/\s+/g, ' ').slice(0, 30);
+  if (name.length < 2) return res.status(400).json({ error: 'group name: 2–30 characters' });
+  const g = await store.createGroup({ name, ownerId: me.id });
+  res.json({ id: g.id, name: g.name });
+});
+
+app.post('/api/groups/invite', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const g = store.getGroup(req.body?.groupId);
+  if (!g || !g.members.includes(me.id)) return res.status(404).json({ error: 'no such group' });
+  const target = store.getUser(req.body?.userId);
+  if (!target) return res.status(404).json({ error: 'no such user' });
+  const f = store.friendshipBetween(me.id, target.id);
+  if (!f || f.status !== 'accepted') {
+    return res.status(403).json({ error: 'you can only add friends to a group' });
+  }
+  if (g.members.includes(target.id)) return res.status(409).json({ error: 'already a member' });
+  const dup = store
+    .groupInvitesForGroup(g.id)
+    .find((i) => i.to === target.id && i.status === 'pending');
+  if (dup) return res.status(409).json({ error: 'invite already pending' });
+
+  await store.createGroupInvite({ groupId: g.id, from: me.id, to: target.id });
+  await pushToUser(target.id, {
+    title: '🔑 Group invite',
+    body: `${me.username} invited you to the group "${g.name}".`,
+    data: { url: './?friends=1' },
+  });
+  res.json({ ok: true, user: publicUser(target) });
+});
+
+app.post('/api/groups/respond', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const inv = store.getGroupInvite(req.body?.groupInviteId);
+  if (!inv || inv.to !== me.id || inv.status !== 'pending') {
+    return res.status(404).json({ error: 'no such invite' });
+  }
+  inv.status = req.body?.accept ? 'accepted' : 'declined';
+  inv.respondedAt = Date.now();
+  await store.saveGroupInvite(inv);
+  if (req.body?.accept) {
+    const g = store.getGroup(inv.groupId);
+    if (g && !g.members.includes(me.id)) {
+      g.members.push(me.id);
+      await store.saveGroup(g);
+      await pushToUser(inv.from, {
+        title: '🔑 Group joined',
+        body: `${me.username} joined "${g.name}".`,
+        data: { url: './?friends=1' },
+      });
+    }
+  }
+  res.json({ status: inv.status });
+});
+
+app.post('/api/groups/leave', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const g = store.getGroup(req.body?.groupId);
+  if (!g || !g.members.includes(me.id)) return res.status(404).json({ error: 'no such group' });
+  if (g.ownerId === me.id) {
+    return res.status(400).json({ error: 'the creator must delete the group instead' });
+  }
+  g.members = g.members.filter((id) => id !== me.id);
+  await store.saveGroup(g);
+  res.json({ ok: true });
+});
+
+app.post('/api/groups/delete', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const g = store.getGroup(req.body?.groupId);
+  if (!g) return res.status(404).json({ error: 'no such group' });
+  if (g.ownerId !== me.id) return res.status(403).json({ error: 'only the creator can delete' });
+  for (const gi of store.groupInvitesForGroup(g.id)) await store.removeGroupInvite(gi.id);
+  await store.removeGroup(g.id);
+  res.json({ ok: true });
+});
+
+// Invite the whole group to a key time. Bypasses the friends-only rule so you
+// can reach group members you haven't friended.
+app.post('/api/groups/keytime', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const g = store.getGroup(req.body?.groupId);
+  if (!g || !g.members.includes(me.id)) return res.status(404).json({ error: 'no such group' });
+  const message = String(req.body?.message || '').trim().slice(0, 25);
+  const recipients = g.members.filter((id) => id !== me.id);
+  if (!recipients.length) return res.status(400).json({ error: 'no one else in the group yet' });
+
+  const eventId = crypto.randomUUID();
+  for (const uid of recipients) {
+    await store.createInvite({ from: me.id, to: uid, message, groupId: g.id, eventId });
+    await pushToUser(uid, {
+      title: `🔑 Key time with "${g.name}"`,
+      body: message
+        ? `${me.username}: ${message}`
+        : `${me.username} invited "${g.name}" to have key time together.`,
+      data: { url: './?invites=1' },
+    });
+  }
+  res.json({ eventId, sent: recipients.length });
 });
 
 // --- Subscribe / settings ------------------------------------------------

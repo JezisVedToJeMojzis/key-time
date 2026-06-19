@@ -83,6 +83,24 @@ const els = {
   inviteFriends: $('invite-friends'),
   inviteCancel: $('invite-cancel'),
   inviteSend: $('invite-send'),
+  groupName: $('group-name'),
+  groupCreateBtn: $('group-create-btn'),
+  groupMsg: $('group-msg'),
+  groupInvitesSection: $('group-invites-section'),
+  groupInvites: $('group-invites'),
+  groupsList: $('groups-list'),
+  groupsEmpty: $('groups-empty'),
+  groupKeytimeModal: $('group-keytime-modal'),
+  groupKeytimeTitle: $('group-keytime-title'),
+  groupKeytimeMessage: $('group-keytime-message'),
+  groupKeytimeCancel: $('group-keytime-cancel'),
+  groupKeytimeSend: $('group-keytime-send'),
+  groupInviteModal: $('group-invite-modal'),
+  groupInviteTitle: $('group-invite-title'),
+  groupInviteFriends: $('group-invite-friends'),
+  groupInviteEmpty: $('group-invite-empty'),
+  groupInviteCancel: $('group-invite-cancel'),
+  groupInviteSend: $('group-invite-send'),
 };
 
 const ID_KEY = 'keytime.id';
@@ -97,6 +115,8 @@ const state = {
   authMode: 'register', // or 'login'
   config: null,
   friends: [],        // latest accepted friends (for the invite picker)
+  groups: [],         // latest groups I'm in
+  groupTarget: null,  // group id while a group modal is open
   server: null,       // last /api/state response
   clockOffset: 0,     // serverNow - clientNow
   started: false,     // app (post-login) initialized once
@@ -639,27 +659,51 @@ async function refreshInvites() {
 function inviteItem(inv, { incoming }) {
   const li = document.createElement('li');
   li.className = 'invite-item';
+  const isGroup = !!inv.group;
 
   const head = document.createElement('div');
   head.className = 'invite-head';
   const name = document.createElement('span');
   name.className = 'name';
-  name.textContent = inv.user.username;
+  // An outgoing group blast represents the whole group, not a single person.
+  name.textContent = isGroup && !incoming ? inv.group.name : inv.user.username;
 
   const right = document.createElement('span');
   right.className = 'invite-head-right';
-  const status = document.createElement('span');
-  status.className = `invite-status ${inv.status}`;
-  status.textContent = inv.status;
+  // The collapsed outgoing-group row has no single meaningful status — the
+  // X/Y counter conveys it instead.
+  if (!(isGroup && !incoming)) {
+    const status = document.createElement('span');
+    status.className = `invite-status ${inv.status}`;
+    status.textContent = inv.status;
+    right.append(status);
+  }
   const dismiss = document.createElement('button');
   dismiss.className = 'invite-dismiss';
   dismiss.textContent = '✕';
   dismiss.setAttribute('aria-label', 'Dismiss');
-  dismiss.onclick = () => dismissInvite(inv.id);
-  right.append(status, dismiss);
+  dismiss.onclick = () => (isGroup ? dismissEvent(inv.event.id) : dismissInvite(inv.id));
+  right.append(dismiss);
 
   head.append(name, right);
   li.append(head);
+
+  // Group context: a badge plus who sent it (for incoming).
+  if (isGroup) {
+    const ctx = document.createElement('div');
+    ctx.className = 'invite-group';
+    const badge = document.createElement('span');
+    badge.className = 'group-badge';
+    badge.textContent = `👥 ${inv.group.name}`;
+    ctx.append(badge);
+    if (incoming) {
+      const from = document.createElement('span');
+      from.className = 'invite-from';
+      from.textContent = `from ${inv.user.username}`;
+      ctx.append(from);
+    }
+    li.append(ctx);
+  }
 
   if (inv.message) {
     const note = document.createElement('div');
@@ -671,14 +715,60 @@ function inviteItem(inv, { incoming }) {
   const times = document.createElement('div');
   times.className = 'invite-times';
   let t = `sent ${fmtTime(inv.createdAt)}`;
-  if (inv.respondedAt) {
+  // Per-person responded line — skip for collapsed outgoing group rows.
+  if (inv.respondedAt && (!isGroup || incoming)) {
     const who = inv.respondedBy && inv.respondedBy === state.user?.id ? 'you' : inv.user.username;
     t += ` · ${who} ${inv.status} ${fmtTime(inv.respondedAt)}`;
   }
   times.textContent = t;
   li.append(times);
 
-  // Action buttons. Once an invite is declined there's nothing left to do.
+  // Group key-time aggregate: "X/Y in" + a collapsible per-member breakdown.
+  if (isGroup && inv.event) {
+    const row = document.createElement('div');
+    row.className = 'event-row';
+    const count = document.createElement('span');
+    count.className = 'event-count';
+    count.textContent = `${inv.event.accepted}/${inv.event.total} in`;
+    const toggle = document.createElement('button');
+    toggle.className = 'event-toggle';
+    toggle.textContent = 'Show responses';
+    const responses = document.createElement('div');
+    responses.className = 'event-responses hidden';
+    toggle.onclick = async () => {
+      if (!responses.classList.contains('hidden')) {
+        responses.classList.add('hidden');
+        toggle.textContent = 'Show responses';
+        return;
+      }
+      if (!responses.dataset.loaded) {
+        try {
+          const data = await api(`/api/event?eventId=${encodeURIComponent(inv.event.id)}`);
+          responses.innerHTML = '';
+          data.members.forEach((m) => {
+            const r = document.createElement('div');
+            r.className = 'event-member';
+            const n = document.createElement('span');
+            n.textContent = m.user.username;
+            const s = document.createElement('span');
+            s.className = `invite-status ${m.status}`;
+            s.textContent = m.status;
+            r.append(n, s);
+            responses.append(r);
+          });
+          responses.dataset.loaded = '1';
+        } catch {
+          responses.textContent = 'Could not load responses.';
+        }
+      }
+      responses.classList.remove('hidden');
+      toggle.textContent = 'Hide responses';
+    };
+    row.append(count, toggle);
+    li.append(row, responses);
+  }
+
+  // Action buttons. Once declined there's nothing left to do.
   if (inv.status !== 'declined') {
     const actions = document.createElement('div');
     actions.className = 'actions';
@@ -696,15 +786,15 @@ function inviteItem(inv, { incoming }) {
       dec.textContent = 'Decline';
       dec.onclick = () => respondInvite(inv.id, false);
       actions.append(dec);
-    } else {
-      // Sender: cancel the invite (stays visible to them as "declined").
+    } else if (!isGroup) {
+      // Sender of a 1:1 invite can cancel; group blasts are cleared via ✕.
       const cancel = document.createElement('button');
       cancel.className = 'btn btn-decline';
       cancel.textContent = 'Cancel';
       cancel.onclick = () => respondInvite(inv.id, false);
       actions.append(cancel);
     }
-    li.append(actions);
+    if (actions.children.length) li.append(actions);
   }
 
   return li;
@@ -800,6 +890,250 @@ async function dismissInvite(id) {
   } catch {
     /* ignore */
   }
+}
+
+// Clear a whole group blast (all invites sharing one eventId) from my list.
+async function dismissEvent(eventId) {
+  try {
+    await api('/api/invite/dismiss', 'POST', { eventId });
+    await refreshInvites();
+  } catch {
+    /* ignore */
+  }
+}
+
+// --- Groups --------------------------------------------------------------
+async function refreshGroups() {
+  if (!state.token) return;
+  try {
+    renderGroups(await api('/api/groups'));
+  } catch {
+    /* ignore transient errors */
+  }
+}
+
+function renderGroups({ groups, invites }) {
+  state.groups = groups;
+
+  // Pending invitations to join a group.
+  els.groupInvites.innerHTML = '';
+  els.groupInvitesSection.classList.toggle('hidden', invites.length === 0);
+  invites.forEach((inv) => {
+    const actions = document.createElement('span');
+    actions.className = 'actions';
+    const acc = document.createElement('button');
+    acc.className = 'btn btn-accept';
+    acc.textContent = 'Join';
+    acc.onclick = () => respondGroupInvite(inv.groupInviteId, true);
+    const dec = document.createElement('button');
+    dec.className = 'btn btn-decline';
+    dec.textContent = 'Decline';
+    dec.onclick = () => respondGroupInvite(inv.groupInviteId, false);
+    actions.append(acc, dec);
+    els.groupInvites.append(
+      friendRow(`${inv.group.name} · from ${inv.user.username}`, '', actions)
+    );
+  });
+
+  // Groups I'm in.
+  const myFriendIds = new Set((state.friends || []).map((f) => f.user.id));
+  els.groupsList.innerHTML = '';
+  els.groupsEmpty.classList.toggle('hidden', groups.length > 0);
+  groups.forEach((g) => {
+    const li = document.createElement('li');
+    li.className = 'group';
+
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.className = 'group-summary';
+    const title = document.createElement('span');
+    title.className = 'group-name';
+    title.textContent = g.name;
+    const count = document.createElement('span');
+    count.className = 'group-count';
+    count.textContent = `${g.members.length} ${g.members.length === 1 ? 'member' : 'members'}`;
+    summary.append(title, count);
+    details.append(summary);
+
+    // Member list — non-friends (and not me) get an Add button.
+    const memberUl = document.createElement('ul');
+    memberUl.className = 'group-members';
+    g.members.forEach((m) => {
+      const isMe = m.id === state.user?.id;
+      let actions = null;
+      if (!isMe && !myFriendIds.has(m.id)) {
+        actions = document.createElement('span');
+        actions.className = 'actions';
+        const add = document.createElement('button');
+        add.className = 'btn btn-secondary';
+        add.textContent = 'Add friend';
+        add.onclick = () => addFriend(m.username);
+        actions.append(add);
+      }
+      const label = isMe ? `${m.username} (you)` : m.username;
+      memberUl.append(friendRow(label, '', actions));
+    });
+    details.append(memberUl);
+
+    // Group actions.
+    const actions = document.createElement('div');
+    actions.className = 'group-actions';
+    const kt = document.createElement('button');
+    kt.className = 'btn btn-secondary';
+    kt.textContent = '🔑 Invite group';
+    kt.onclick = () => openGroupKeytimeModal(g.id, g.name);
+    const addFr = document.createElement('button');
+    addFr.className = 'btn btn-secondary';
+    addFr.textContent = 'Add friends';
+    addFr.onclick = () => openGroupInviteModal(g.id, g.name);
+    actions.append(kt, addFr);
+    if (g.isOwner) {
+      const del = document.createElement('button');
+      del.className = 'btn btn-decline';
+      del.textContent = 'Delete';
+      del.onclick = () => deleteGroup(g.id, g.name);
+      actions.append(del);
+    } else {
+      const leave = document.createElement('button');
+      leave.className = 'btn btn-decline';
+      leave.textContent = 'Leave';
+      leave.onclick = () => leaveGroup(g.id, g.name);
+      actions.append(leave);
+    }
+    details.append(actions);
+
+    li.append(details);
+    els.groupsList.append(li);
+  });
+}
+
+async function createGroup() {
+  const name = els.groupName.value.trim();
+  if (!name) return;
+  els.groupMsg.textContent = '';
+  try {
+    const g = await api('/api/groups', 'POST', { name });
+    els.groupName.value = '';
+    els.groupMsg.textContent = `Group "${g.name}" created.`;
+    await refreshGroups();
+  } catch (err) {
+    els.groupMsg.textContent = err.detail || 'Could not create group.';
+  }
+  setTimeout(() => { els.groupMsg.textContent = ''; }, 4000);
+}
+
+async function respondGroupInvite(groupInviteId, accept) {
+  try {
+    await api('/api/groups/respond', 'POST', { groupInviteId, accept });
+    await refreshGroups();
+  } catch {
+    /* ignore */
+  }
+}
+
+async function leaveGroup(groupId, name) {
+  if (!confirm(`Leave "${name}"?`)) return;
+  try {
+    await api('/api/groups/leave', 'POST', { groupId });
+    await refreshGroups();
+  } catch (err) {
+    els.groupMsg.textContent = err.detail || 'Could not leave group.';
+    setTimeout(() => { els.groupMsg.textContent = ''; }, 4000);
+  }
+}
+
+async function deleteGroup(groupId, name) {
+  if (!confirm(`Delete "${name}" for everyone?`)) return;
+  try {
+    await api('/api/groups/delete', 'POST', { groupId });
+    await refreshGroups();
+  } catch (err) {
+    els.groupMsg.textContent = err.detail || 'Could not delete group.';
+    setTimeout(() => { els.groupMsg.textContent = ''; }, 4000);
+  }
+}
+
+// Invite friends into a group (pills picker; only friends not already in it).
+function openGroupInviteModal(groupId, name) {
+  state.groupTarget = groupId;
+  const group = state.groups.find((g) => g.id === groupId);
+  const memberIds = new Set(group ? group.members.map((m) => m.id) : []);
+  const candidates = (state.friends || []).filter((f) => !memberIds.has(f.user.id));
+  els.groupInviteTitle.textContent = `Add friends to "${name}"`;
+  els.groupInviteFriends.innerHTML = '';
+  candidates.forEach((fr) => {
+    const label = document.createElement('label');
+    label.className = 'invite-pick';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = fr.user.id;
+    cb.dataset.username = fr.user.username;
+    const span = document.createElement('span');
+    span.textContent = fr.user.username;
+    label.append(cb, span);
+    els.groupInviteFriends.append(label);
+  });
+  els.groupInviteEmpty.classList.toggle('hidden', candidates.length > 0);
+  els.groupInviteModal.classList.remove('hidden');
+}
+
+function closeGroupInviteModal() {
+  els.groupInviteModal.classList.add('hidden');
+  state.groupTarget = null;
+}
+
+async function sendGroupInvite() {
+  const groupId = state.groupTarget;
+  const targets = [...els.groupInviteFriends.querySelectorAll('input:checked')].map((c) => ({
+    id: c.value,
+    username: c.dataset.username,
+  }));
+  closeGroupInviteModal();
+  if (!groupId || !targets.length) return;
+  let sent = 0;
+  const failed = [];
+  for (const t of targets) {
+    try {
+      await api('/api/groups/invite', 'POST', { groupId, userId: t.id });
+      sent++;
+    } catch {
+      failed.push(t.username);
+    }
+  }
+  els.groupMsg.textContent = failed.length
+    ? `Invited ${sent}; couldn't invite ${failed.join(', ')}.`
+    : `Group invite sent to ${sent} ${sent === 1 ? 'friend' : 'friends'}.`;
+  await refreshGroups();
+  setTimeout(() => { els.groupMsg.textContent = ''; }, 4000);
+}
+
+function openGroupKeytimeModal(groupId, name) {
+  state.groupTarget = groupId;
+  els.groupKeytimeTitle.textContent = `Invite "${name}" to key time`;
+  els.groupKeytimeMessage.value = '';
+  els.groupKeytimeModal.classList.remove('hidden');
+  els.groupKeytimeMessage.focus();
+}
+
+function closeGroupKeytimeModal() {
+  els.groupKeytimeModal.classList.add('hidden');
+  state.groupTarget = null;
+}
+
+async function sendGroupKeytime() {
+  const groupId = state.groupTarget;
+  const message = els.groupKeytimeMessage.value.trim();
+  closeGroupKeytimeModal();
+  if (!groupId) return;
+  els.groupMsg.textContent = '';
+  try {
+    const r = await api('/api/groups/keytime', 'POST', { groupId, message });
+    els.groupMsg.textContent = `Key time invite sent to ${r.sent} ${r.sent === 1 ? 'person' : 'people'}.`;
+    await refreshInvites();
+  } catch (err) {
+    els.groupMsg.textContent = err.detail || 'Could not invite the group.';
+  }
+  setTimeout(() => { els.groupMsg.textContent = ''; }, 4000);
 }
 
 // --- Polling -------------------------------------------------------------
@@ -951,6 +1285,7 @@ async function startApp() {
   await refreshState();
   renderQR();
   await refreshFriends();
+  await refreshGroups();
   await refreshInvites();
   await refreshSessions();
   render();
@@ -973,12 +1308,13 @@ async function startApp() {
 
   // sync from server periodically; tick the countdown every second
   setInterval(refreshState, 10000);
-  setInterval(() => { refreshFriends(); refreshInvites(); }, 15000);
+  setInterval(() => { refreshFriends(); refreshGroups(); refreshInvites(); }, 15000);
   setInterval(updateCountdown, 1000);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       refreshState();
       refreshFriends();
+      refreshGroups();
       refreshInvites();
     }
   });
@@ -1019,6 +1355,25 @@ async function init() {
   });
   els.inviteModal.addEventListener('click', (e) => {
     if (e.target === els.inviteModal) closeInviteModal();
+  });
+
+  // Groups
+  els.groupCreateBtn.addEventListener('click', createGroup);
+  els.groupName.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') createGroup();
+  });
+  els.groupKeytimeSend.addEventListener('click', sendGroupKeytime);
+  els.groupKeytimeCancel.addEventListener('click', closeGroupKeytimeModal);
+  els.groupKeytimeMessage.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendGroupKeytime();
+  });
+  els.groupKeytimeModal.addEventListener('click', (e) => {
+    if (e.target === els.groupKeytimeModal) closeGroupKeytimeModal();
+  });
+  els.groupInviteSend.addEventListener('click', sendGroupInvite);
+  els.groupInviteCancel.addEventListener('click', closeGroupInviteModal);
+  els.groupInviteModal.addEventListener('click', (e) => {
+    if (e.target === els.groupInviteModal) closeGroupInviteModal();
   });
 
   // Tab menu

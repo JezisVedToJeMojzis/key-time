@@ -11,7 +11,7 @@ import crypto from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const COLLECTIONS = ['records', 'users', 'friendships', 'invites', 'sessions'];
+const COLLECTIONS = ['records', 'users', 'friendships', 'invites', 'sessions', 'groups', 'groupInvites'];
 
 /** @type {Record<string, Map<string, object>>} */
 const data = Object.fromEntries(COLLECTIONS.map((c) => [c, new Map()]));
@@ -311,7 +311,11 @@ export function invitesTo(userId) {
   return [...data.invites.values()].filter((i) => i.to === userId);
 }
 
-export async function createInvite({ from, to, message = '' }) {
+export function invitesByEvent(eventId) {
+  return [...data.invites.values()].filter((i) => i.eventId === eventId);
+}
+
+export async function createInvite({ from, to, message = '', groupId = null, eventId = null }) {
   const inv = {
     id: crypto.randomUUID(),
     from,
@@ -322,6 +326,8 @@ export async function createInvite({ from, to, message = '' }) {
     respondedAt: null,
     respondedBy: null,
     hiddenFor: [], // userIds who dismissed it from their own list
+    groupId,       // set when this invite is part of a group key-time blast
+    eventId,       // shared id linking all invites from one group blast
   };
   await save('invites', inv);
   return inv;
@@ -349,4 +355,75 @@ export async function createSession(session) {
   const s = { id: crypto.randomUUID(), ...session };
   await save('sessions', s);
   return s;
+}
+
+// =========================================================================
+// Groups
+// =========================================================================
+export function getGroup(id) {
+  return data.groups.get(id) || null;
+}
+
+/** All groups this user is a member of. */
+export function groupsForUser(userId) {
+  return [...data.groups.values()].filter((g) => g.members.includes(userId));
+}
+
+export async function createGroup({ name, ownerId }) {
+  const g = {
+    id: crypto.randomUUID(),
+    name,
+    ownerId,
+    members: [ownerId],
+    createdAt: Date.now(),
+  };
+  await save('groups', g);
+  return g;
+}
+
+export async function saveGroup(g) {
+  await save('groups', g);
+  return g;
+}
+
+export async function removeGroup(id) {
+  return drop('groups', id);
+}
+
+// =========================================================================
+// Group invites (invitations to JOIN a group)
+// =========================================================================
+export function getGroupInvite(id) {
+  return data.groupInvites.get(id) || null;
+}
+
+export function groupInvitesTo(userId) {
+  return [...data.groupInvites.values()].filter((i) => i.to === userId);
+}
+
+export function groupInvitesForGroup(groupId) {
+  return [...data.groupInvites.values()].filter((i) => i.groupId === groupId);
+}
+
+export async function createGroupInvite({ groupId, from, to }) {
+  const inv = {
+    id: crypto.randomUUID(),
+    groupId,
+    from,
+    to,
+    status: 'pending',
+    createdAt: Date.now(),
+    respondedAt: null,
+  };
+  await save('groupInvites', inv);
+  return inv;
+}
+
+export async function saveGroupInvite(inv) {
+  await save('groupInvites', inv);
+  return inv;
+}
+
+export async function removeGroupInvite(id) {
+  return drop('groupInvites', id);
 }

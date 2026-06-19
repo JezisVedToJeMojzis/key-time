@@ -46,7 +46,7 @@
     <!-- Top navigation -->
     <nav class="tabs" id="tabs">
       <button class="tab active" type="button" data-tab="timer">Timer</button>
-      <button class="tab" type="button" data-tab="friends">Friends</button>
+      <button class="tab" type="button" data-tab="friends">Peeps</button>
       <button class="tab" type="button" data-tab="profile">Profile</button>
     </nav>
 
@@ -121,7 +121,7 @@
 
     <!-- Friends -->
     <section class="card" id="friends-card" data-panel="friends">
-      <h2>Friends</h2>
+      <h2>Peeps</h2>
 
       <div class="friend-add">
         <input id="friend-username" type="text" autocapitalize="none" spellcheck="false" placeholder="add by username" maxlength="20" />
@@ -145,6 +145,21 @@
       <h3 class="subhead">Your friends</h3>
       <ul id="friends-list" class="friend-list"></ul>
       <p id="friends-empty" class="hint">No friends yet — share your QR code above.</p>
+
+      <h3 class="subhead">Groups</h3>
+      <div class="friend-add">
+        <input id="group-name" type="text" maxlength="30" placeholder="new group name" />
+        <button id="group-create-btn" class="btn btn-secondary">Create</button>
+      </div>
+      <p id="group-msg" class="hint"></p>
+
+      <div id="group-invites-section" class="hidden">
+        <h4 class="subhead group-subhead">Group invites</h4>
+        <ul id="group-invites" class="friend-list"></ul>
+      </div>
+
+      <ul id="groups-list" class="groups"></ul>
+      <p id="groups-empty" class="hint">No groups yet — create one and invite friends.</p>
     </section>
 
     <!-- Key time invites (shown only when there are any) -->
@@ -249,6 +264,32 @@
       <div class="modal-actions">
         <button id="invite-cancel" type="button" class="btn btn-ghost">Cancel</button>
         <button id="invite-send" type="button" class="btn btn-primary">Send invite</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Invite the whole group to a key time -->
+  <div id="group-keytime-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <h3 id="group-keytime-title">Invite group to key time</h3>
+      <input id="group-keytime-message" type="text" maxlength="25" placeholder="short note — e.g. at the gym?" />
+      <div class="modal-actions">
+        <button id="group-keytime-cancel" type="button" class="btn btn-ghost">Cancel</button>
+        <button id="group-keytime-send" type="button" class="btn btn-primary">Invite group</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Invite a friend into a group -->
+  <div id="group-invite-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <h3 id="group-invite-title">Add friends to group</h3>
+      <p class="invite-pick-label">Choose friends</p>
+      <div id="group-invite-friends" class="invite-friends"></div>
+      <p id="group-invite-empty" class="hint">All your friends are already in this group.</p>
+      <div class="modal-actions">
+        <button id="group-invite-cancel" type="button" class="btn btn-ghost">Cancel</button>
+        <button id="group-invite-send" type="button" class="btn btn-primary">Add to group</button>
       </div>
     </div>
   </div>
