@@ -320,22 +320,27 @@ function updateSessionTime() {
   }
 }
 
-// While the timer runs, surface it as an ongoing system notification showing
-// the remaining time — visible even with the app in the background. We only
-// re-show when the displayed text changes (minute granularity) to avoid spam.
-let liveNotifText = null;
+// While the timer runs, keep ONE persistent notification showing when the next
+// key time will hit. The web Notifications API can't render a self-ticking
+// countdown — every text "update" is really a re-issue of the notification,
+// which is what made it re-pop each minute. So we issue it once per timer start
+// (only when the target time changes) and leave it in place; the live ticking
+// lives in the app's on-screen countdown.
+let liveNotifFireAt = null;
 async function updateLiveNotification() {
   if (!('serviceWorker' in navigator) || Notification.permission !== 'granted') return;
   const s = state.server;
   const reg = await navigator.serviceWorker.ready;
 
   if (s?.running && s.nextFireAt) {
-    const remaining = s.nextFireAt - (Date.now() + state.clockOffset);
-    const text = remaining > 0 ? `Key time in ${fmtLongDuration(remaining)}` : 'Key time now!';
-    if (text === liveNotifText) return;
-    liveNotifText = text;
-    reg.showNotification('Key Time ⏳', {
-      body: text,
+    if (s.nextFireAt === liveNotifFireAt) return; // already showing this one
+    liveNotifFireAt = s.nextFireAt;
+    const at = new Date(s.nextFireAt).toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    reg.showNotification('Key Time is running ⏳', {
+      body: `Next key time at ${at}. Open the app for the live countdown.`,
       tag: 'keytime-countdown',
       silent: true,
       renotify: false,
@@ -343,8 +348,8 @@ async function updateLiveNotification() {
       icon: './icons/icon.svg',
       badge: './icons/icon.svg',
     });
-  } else if (liveNotifText !== null) {
-    liveNotifText = null;
+  } else if (liveNotifFireAt !== null) {
+    liveNotifFireAt = null;
     const ns = await reg.getNotifications({ tag: 'keytime-countdown' });
     ns.forEach((n) => n.close());
   }
