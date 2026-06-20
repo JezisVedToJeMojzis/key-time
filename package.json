@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server/server.js",
     "dev": "node --watch server/server.js",
-    "gen-vapid": "node server/gen-vapid.js"
+    "gen-vapid": "node server/gen-vapid.js",
+    "gen-icons": "node server/gen-icons.js"
   },
   "engines": {
     "node": ">=18"

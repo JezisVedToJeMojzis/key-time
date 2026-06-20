@@ -6,6 +6,7 @@ const els = {
   bannerStart: $('banner-start'),
   statusText: $('status-text'),
   countdown: $('countdown'),
+  overdue: $('overdue'),
   startBtn: $('start-btn'),
   fireBtn: $('fire-btn'),
   stopBtn: $('stop-btn'),
@@ -331,12 +332,26 @@ function updateCountdown() {
   const s = state.server;
   if (s?.running && s.nextFireAt) {
     const remaining = s.nextFireAt - (Date.now() + state.clockOffset);
-    els.countdown.textContent = remaining > 0 ? fmtDuration(remaining) : 'firing…';
+    els.countdown.textContent = fmtDuration(remaining); // clamps to 00:00:00 at/after fire
   } else {
     els.countdown.textContent = '--:--:--';
   }
+  updateOverdue();
   updateSessionTime();
   updateLiveNotification();
+}
+
+// After a key time fires (and until the user restarts), show how much extra time
+// has piled up — this is exactly what gets added to the gap before the next one.
+function updateOverdue() {
+  const s = state.server;
+  if (s && !s.running && s.lastFiredAt) {
+    const extra = (Date.now() + state.clockOffset) - s.lastFiredAt;
+    els.overdue.textContent = `+${fmtDuration(extra)} adding to your next gap`;
+    els.overdue.classList.remove('hidden');
+  } else {
+    els.overdue.classList.add('hidden');
+  }
 }
 
 // Elapsed time since the first key time of the current session (ticks live).

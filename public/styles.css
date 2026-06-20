@@ -194,9 +194,17 @@ html, body {
   font-weight: 700;
   text-align: center;
   letter-spacing: 0.02em;
-  margin: 18px 0;
+  margin: 18px 0 0;
 }
-.status-actions { display: flex; gap: 10px; }
+.overdue {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+  color: var(--warn, #d98324);
+  margin: 4px 0 0;
+}
+.status-actions { display: flex; gap: 10px; margin-top: 18px; }
 
 /* Timer interval toggle (in status card) */
 .settings-toggle {

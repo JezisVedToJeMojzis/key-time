@@ -145,6 +145,7 @@ export async function upsertSubscription({ id, subscription, intervalMs, userId 
       intervalMs: typeof intervalMs === 'number' ? intervalMs : 60 * 60 * 1000,
       nextFireAt: null,
       running: false,
+      lastFiredAt: null, // when the last key time fired while stopped (overdue marker)
       createdAt: Date.now(),
       history: [],
     };
@@ -168,6 +169,7 @@ export async function startTimer(id) {
   if (!rec) return null;
   rec.running = true;
   rec.nextFireAt = Date.now() + rec.intervalMs;
+  rec.lastFiredAt = null; // restarting clears the "overdue since last key time" marker
   await save('records', rec);
   return rec;
 }
@@ -177,6 +179,7 @@ export async function stopTimer(id) {
   if (!rec) return null;
   rec.running = false;
   rec.nextFireAt = null;
+  rec.lastFiredAt = null; // a manual stop is not "overdue" — clear the marker
   await save('records', rec);
   return rec;
 }
@@ -186,12 +189,15 @@ export async function stopTimer(id) {
  * The next timer only restarts when the user opens the notification and
  * calls startTimer again.
  */
-export async function recordFire(id, firedAt = Date.now()) {
+export async function recordFire(id, firedAt = Date.now(), { overdue = true } = {}) {
   const rec = data.records.get(id);
   if (!rec) return null;
   rec.history.push({ firedAt });
   rec.running = false;
   rec.nextFireAt = null;
+  // The overdue clock only applies when the timer elapsed on its own. A manual
+  // "Key time now" is intentional, so it doesn't count as overdue.
+  rec.lastFiredAt = overdue ? firedAt : null;
   await save('records', rec);
   return rec;
 }
@@ -214,6 +220,7 @@ export async function clearSession(id) {
   rec.history = [];
   rec.running = false;
   rec.nextFireAt = null;
+  rec.lastFiredAt = null;
   await save('records', rec);
   return rec;
 }

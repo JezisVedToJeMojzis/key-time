@@ -669,7 +669,8 @@ app.post('/api/stop', async (req, res) => {
 // just like an automatic fire — for when key time comes early.
 app.post('/api/fire', async (req, res) => {
   if (!requireOwnedRecord(req, res, req.body?.id)) return;
-  const rec = await store.recordFire(req.body?.id);
+  // Manual "Key time now" — intentional, so it's not flagged as overdue.
+  const rec = await store.recordFire(req.body?.id, undefined, { overdue: false });
   res.json(publicState(rec));
 });
 
@@ -755,6 +756,7 @@ function publicState(rec) {
     intervalMs: rec.intervalMs,
     running: rec.running,
     nextFireAt: rec.nextFireAt,
+    lastFiredAt: rec.lastFiredAt || null,
     serverNow: Date.now(),
     history: rec.history,
   };
