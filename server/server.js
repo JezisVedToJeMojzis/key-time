@@ -158,7 +158,7 @@ app.post('/api/friends/request', async (req, res) => {
     await store.saveFriendship(existing);
     await pushToUser(target.id, {
       title: '🔑 Friend added',
-      body: `👤 ${me.username} accepted your friend request.`,
+      body: `${me.username} accepted your friend request.`,
       data: { url: './' },
     });
     return res.json({ status: 'accepted', user: publicUser(target) });
@@ -167,7 +167,7 @@ app.post('/api/friends/request', async (req, res) => {
   await store.createFriendship({ requester: me.id, addressee: target.id });
   await pushToUser(target.id, {
     title: '🔑 Friend request',
-    body: `👤 ${me.username} wants to be your friend.`,
+    body: `${me.username} wants to be your friend.`,
     data: { url: './?friends=1' },
   });
   res.json({ status: 'pending', user: publicUser(target) });
@@ -186,7 +186,7 @@ app.post('/api/friends/respond', async (req, res) => {
     await store.saveFriendship(f);
     await pushToUser(f.requester, {
       title: '🔑 Friend added',
-      body: `👤 ${me.username} accepted your friend request.`,
+      body: `${me.username} accepted your friend request.`,
       data: { url: './' },
     });
     return res.json({ status: 'accepted' });
@@ -299,8 +299,8 @@ app.post('/api/invite', async (req, res) => {
   await pushToUser(friend.id, {
     title: '🔑 Wanna have a key time?',
     body: message
-      ? `👤 ${me.username}: ${message}`
-      : `👤 ${me.username} is inviting you to have key time together.`,
+      ? `${me.username}: ${message}`
+      : `${me.username} is inviting you to have key time together.`,
     data: { url: './?invites=1' },
   });
   res.json({ id: inv.id, status: inv.status, user: publicUser(friend) });
@@ -330,10 +330,10 @@ app.post('/api/invite/respond', async (req, res) => {
     let payload;
     if (isRecipient) {
       payload = accept
-        ? { title: `🔑 👤 ${me.username} is in!`, body: `👤 ${me.username} accepted your key time invite.` }
-        : { title: `🔑 👤 ${me.username} can't right now`, body: `👤 ${me.username} declined your key time invite.` };
+        ? { title: `🔑 ${me.username} is in!`, body: `${me.username} accepted your key time invite.` }
+        : { title: `🔑 ${me.username} can't right now`, body: `${me.username} declined your key time invite.` };
     } else {
-      payload = { title: `🔑 👤 ${me.username} cancelled`, body: `👤 ${me.username} cancelled the key time invite.` };
+      payload = { title: `🔑 ${me.username} cancelled`, body: `${me.username} cancelled the key time invite.` };
     }
     payload.data = { url: './?invites=1' };
     await pushToUser(other.id, payload);
@@ -463,15 +463,14 @@ app.post('/api/groups/invite', async (req, res) => {
     return res.status(403).json({ error: 'you can only add friends to a group' });
   }
   if (g.members.includes(target.id)) return res.status(409).json({ error: 'already a member' });
-  const dup = store
-    .groupInvitesForGroup(g.id)
-    .find((i) => i.to === target.id && i.status === 'pending');
-  if (dup) return res.status(409).json({ error: 'invite already pending' });
 
-  await store.createGroupInvite({ groupId: g.id, from: me.id, to: target.id });
+  // Add the friend straight into the group — no invitation/acceptance step.
+  g.members.push(target.id);
+  g.invitedBy = { ...(g.invitedBy || {}), [target.id]: me.id };
+  await store.saveGroup(g);
   await pushToUser(target.id, {
-    title: '🔑 Group invite',
-    body: `👤 ${me.username} invited you to the group "${g.name}".`,
+    title: '🔑 Added to group',
+    body: `${me.username} added you to "${g.name}".`,
     data: { url: './?friends=1' },
   });
   res.json({ ok: true, user: publicUser(target) });
@@ -495,7 +494,7 @@ app.post('/api/groups/respond', async (req, res) => {
       await store.saveGroup(g);
       await pushToUser(inv.from, {
         title: '🔑 Group joined',
-        body: `👤 ${me.username} joined "${g.name}".`,
+        body: `${me.username} joined "${g.name}".`,
         data: { url: './?friends=1' },
       });
     }
@@ -539,7 +538,7 @@ app.post('/api/groups/kick', async (req, res) => {
   await store.saveGroup(g);
   await pushToUser(userId, {
     title: '🔑 Removed from group',
-    body: `👤 ${me.username} removed you from "${g.name}".`,
+    body: `${me.username} removed you from "${g.name}".`,
     data: { url: './?friends=1' },
   });
   res.json({ ok: true });
@@ -593,8 +592,8 @@ app.post('/api/groups/keytime', async (req, res) => {
     await pushToUser(uid, {
       title: `🔑 Group key time: ${g.name}`,
       body: message
-        ? `👤 ${me.username}: ${message}`
-        : `👤 ${me.username} invited "${g.name}" to have key time together.`,
+        ? `${me.username}: ${message}`
+        : `${me.username} invited "${g.name}" to have key time together.`,
       data: { url: './?invites=1' },
     });
   }

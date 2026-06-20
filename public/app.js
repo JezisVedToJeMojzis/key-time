@@ -644,7 +644,16 @@ function renderFriends({ friends, incoming, outgoing }) {
     actions.append(invite, remove);
     els.friendsList.append(friendRow(`👤 ${fr.user.username}`, '', actions));
   });
-  outgoing.forEach((o) => els.friendsList.append(friendRow(`👤 ${o.user.username}`, 'requested')));
+  outgoing.forEach((o) => {
+    const actions = document.createElement('span');
+    actions.className = 'actions';
+    const cancel = document.createElement('button');
+    cancel.className = 'btn btn-decline';
+    cancel.textContent = 'Cancel';
+    cancel.onclick = () => cancelFriendRequest(o.user.id, o.user.username);
+    actions.append(cancel);
+    els.friendsList.append(friendRow(`👤 ${o.user.username}`, 'requested', actions));
+  });
   els.friendsEmpty.classList.toggle('hidden', friends.length + outgoing.length > 0);
 }
 
@@ -683,6 +692,17 @@ async function removeFriend(userId, username) {
     await refreshInvites();
   } catch {
     els.friendMsg.textContent = 'Could not remove that friend.';
+    setTimeout(() => { els.friendMsg.textContent = ''; }, 4000);
+  }
+}
+
+async function cancelFriendRequest(userId, username) {
+  if (!confirm(`Cancel your friend request to ${username}?`)) return;
+  try {
+    await api('/api/friends/remove', 'POST', { userId });
+    await refreshFriends();
+  } catch {
+    els.friendMsg.textContent = 'Could not cancel that request.';
     setTimeout(() => { els.friendMsg.textContent = ''; }, 4000);
   }
 }
@@ -1207,8 +1227,8 @@ async function sendGroupInvite() {
     }
   }
   els.groupMsg.textContent = failed.length
-    ? `Invited ${sent}; couldn't invite ${failed.join(', ')}.`
-    : `Group invite sent to ${sent} ${sent === 1 ? 'friend' : 'friends'}.`;
+    ? `Added ${sent}; couldn't add ${failed.join(', ')}.`
+    : `Added ${sent} ${sent === 1 ? 'friend' : 'friends'} to the group.`;
   await refreshGroups();
   setTimeout(() => { els.groupMsg.textContent = ''; }, 4000);
 }
