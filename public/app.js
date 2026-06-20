@@ -1087,6 +1087,11 @@ function renderGroups({ groups }) {
     addFr.onclick = () => openGroupInviteModal(g.id, g.name);
     actions.append(addFr);
     if (g.isOwner) {
+      const rename = document.createElement('button');
+      rename.className = 'btn btn-secondary';
+      rename.textContent = 'Rename';
+      rename.onclick = () => renameGroup(g.id, g.name);
+      actions.append(rename);
       const del = document.createElement('button');
       del.className = 'btn btn-decline';
       del.textContent = 'Delete';
@@ -1147,6 +1152,20 @@ async function leaveGroup(groupId, name) {
     await refreshGroups();
   } catch (err) {
     els.groupMsg.textContent = err.detail || 'Could not leave group.';
+    setTimeout(() => { els.groupMsg.textContent = ''; }, 4000);
+  }
+}
+
+async function renameGroup(groupId, currentName) {
+  const name = prompt('Rename group', currentName);
+  if (name == null) return; // cancelled
+  const trimmed = name.trim();
+  if (!trimmed || trimmed === currentName) return;
+  try {
+    await api('/api/groups/rename', 'POST', { groupId, name: trimmed });
+    await refreshGroups();
+  } catch (err) {
+    els.groupMsg.textContent = err.detail || 'Could not rename group.';
     setTimeout(() => { els.groupMsg.textContent = ''; }, 4000);
   }
 }

@@ -514,6 +514,20 @@ app.post('/api/groups/invite', async (req, res) => {
   res.json({ ok: true, user: publicUser(target) });
 });
 
+// Rename a group — creator only.
+app.post('/api/groups/rename', async (req, res) => {
+  const me = requireUser(req, res);
+  if (!me) return;
+  const g = store.getGroup(req.body?.groupId);
+  if (!g) return res.status(404).json({ error: 'no such group' });
+  if (g.ownerId !== me.id) return res.status(403).json({ error: 'only the creator can rename' });
+  const name = String(req.body?.name || '').trim().replace(/\s+/g, ' ').slice(0, 30);
+  if (name.length < 2) return res.status(400).json({ error: 'group name: 2–30 characters' });
+  g.name = name;
+  await store.saveGroup(g);
+  res.json({ id: g.id, name: g.name });
+});
+
 app.post('/api/groups/leave', async (req, res) => {
   const me = requireUser(req, res);
   if (!me) return;
