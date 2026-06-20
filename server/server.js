@@ -46,6 +46,24 @@ function requireUser(req, res) {
   return user;
 }
 
+// Resolves a timer record the caller is allowed to touch, or sends 401/404/403
+// and returns null. Ownerless (legacy) records are allowed so no one is locked
+// out; records owned by someone else are rejected.
+function requireOwnedRecord(req, res, id) {
+  const me = requireUser(req, res);
+  if (!me) return null;
+  const rec = store.getRecord(id);
+  if (!rec) {
+    res.status(404).json({ error: 'not found' });
+    return null;
+  }
+  if (rec.userId && rec.userId !== me.id) {
+    res.status(403).json({ error: 'not your timer' });
+    return null;
+  }
+  return rec;
+}
+
 const publicUser = (u) => ({ id: u.id, username: u.username });
 
 function validPassword(p) {
@@ -203,6 +221,14 @@ app.post('/api/friends/remove', async (req, res) => {
   const f = store.friendshipBetween(me.id, other.id);
   if (!f) return res.status(404).json({ error: 'not friends' });
   await store.removeFriendship(f.id);
+  // Clear any direct 1:1 key-time invites between us so they don't linger as
+  // orphaned (e.g. a stale "pending" that would later block re-inviting). Group
+  // invites (eventId set) are tied to the group, not the friendship — leave them.
+  for (const inv of [...store.invitesFrom(me.id), ...store.invitesTo(me.id)]) {
+    const between = (inv.from === me.id && inv.to === other.id) ||
+      (inv.from === other.id && inv.to === me.id);
+    if (between && !inv.eventId) await store.removeInvite(inv.id);
+  }
   res.json({ ok: true });
 });
 
@@ -294,6 +320,12 @@ app.post('/api/invite', async (req, res) => {
     .find((i) => i.to === friend.id && i.status === 'pending' && !i.eventId);
   if (dup) return res.status(409).json({ error: 'invite already pending' });
 
+  // Replace any earlier resolved 1:1 invite to this friend so declined/accepted
+  // ones don't pile up — only the latest invite stays in the list.
+  for (const inv of store.invitesFrom(me.id)) {
+    if (inv.to === friend.id && !inv.eventId) await store.removeInvite(inv.id);
+  }
+
   const message = String(req.body?.message || '').trim().slice(0, 25);
   const inv = await store.createInvite({ from: me.id, to: friend.id, message });
   await pushToUser(friend.id, {
@@ -363,13 +395,30 @@ app.post('/api/invite/dismiss', async (req, res) => {
     }
   };
 
-  // A whole group blast can be cleared from my list by its eventId.
+  // A whole group blast can be cleared by its eventId. The initiator clearing it
+  // cancels the key time for everyone (and frees the group for a new one); a
+  // recipient clearing it just drops themselves out.
   if (req.body?.eventId) {
-    const mine = store
-      .invitesByEvent(req.body.eventId)
-      .filter((i) => i.from === me.id || i.to === me.id);
+    const all = store.invitesByEvent(req.body.eventId);
+    const mine = all.filter((i) => i.from === me.id || i.to === me.id);
     if (!mine.length) return res.status(404).json({ error: 'no such invite' });
-    for (const inv of mine) await hideFromMe(inv);
+    const isInitiator = all[0].from === me.id;
+    if (isInitiator) {
+      const g = store.getGroup(all[0].groupId);
+      for (const inv of all) {
+        // Let anyone who'd already accepted know it's off.
+        if (inv.to !== me.id && inv.status === 'accepted') {
+          await pushToUser(inv.to, {
+            title: '🔑 Group key time cancelled',
+            body: `${me.username} cancelled the ${g ? `"${g.name}" ` : ''}key time.`,
+            data: { url: './?invites=1' },
+          });
+        }
+        await store.removeInvite(inv.id);
+      }
+    } else {
+      for (const inv of mine) await hideFromMe(inv);
+    }
     return res.json({ ok: true });
   }
 
@@ -425,18 +474,7 @@ app.get('/api/groups', (req, res) => {
     invitedBy: g.invitedBy || {}, // memberId -> who added them
     members: g.members.map((id) => store.getUser(id)).filter(Boolean).map(publicUser),
   }));
-  const invites = store
-    .groupInvitesTo(me.id)
-    .filter((i) => i.status === 'pending')
-    .map((i) => {
-      const g = store.getGroup(i.groupId);
-      const from = store.getUser(i.from);
-      return g && from
-        ? { groupInviteId: i.id, group: { id: g.id, name: g.name }, user: publicUser(from) }
-        : null;
-    })
-    .filter(Boolean);
-  res.json({ groups, invites });
+  res.json({ groups });
 });
 
 app.post('/api/groups', async (req, res) => {
@@ -476,32 +514,6 @@ app.post('/api/groups/invite', async (req, res) => {
   res.json({ ok: true, user: publicUser(target) });
 });
 
-app.post('/api/groups/respond', async (req, res) => {
-  const me = requireUser(req, res);
-  if (!me) return;
-  const inv = store.getGroupInvite(req.body?.groupInviteId);
-  if (!inv || inv.to !== me.id || inv.status !== 'pending') {
-    return res.status(404).json({ error: 'no such invite' });
-  }
-  inv.status = req.body?.accept ? 'accepted' : 'declined';
-  inv.respondedAt = Date.now();
-  await store.saveGroupInvite(inv);
-  if (req.body?.accept) {
-    const g = store.getGroup(inv.groupId);
-    if (g && !g.members.includes(me.id)) {
-      g.members.push(me.id);
-      g.invitedBy = { ...(g.invitedBy || {}), [me.id]: inv.from };
-      await store.saveGroup(g);
-      await pushToUser(inv.from, {
-        title: '🔑 Group joined',
-        body: `${me.username} joined "${g.name}".`,
-        data: { url: './?friends=1' },
-      });
-    }
-  }
-  res.json({ status: inv.status });
-});
-
 app.post('/api/groups/leave', async (req, res) => {
   const me = requireUser(req, res);
   if (!me) return;
@@ -513,6 +525,11 @@ app.post('/api/groups/leave', async (req, res) => {
   g.members = g.members.filter((id) => id !== me.id);
   if (g.invitedBy) delete g.invitedBy[me.id];
   await store.saveGroup(g);
+  // Drop my own group key-time invites so they don't linger as a pending invite
+  // that blocks future group key times.
+  for (const inv of store.invitesForGroup(g.id)) {
+    if (inv.to === me.id) await store.removeInvite(inv.id);
+  }
   res.json({ ok: true });
 });
 
@@ -536,6 +553,11 @@ app.post('/api/groups/kick', async (req, res) => {
   g.members = g.members.filter((id) => id !== userId);
   if (g.invitedBy) delete g.invitedBy[userId];
   await store.saveGroup(g);
+  // Drop any group key-time invites addressed to the removed member so a dangling
+  // pending invite can't block future group key times.
+  for (const inv of store.invitesForGroup(g.id)) {
+    if (inv.to === userId) await store.removeInvite(inv.id);
+  }
   await pushToUser(userId, {
     title: '🔑 Removed from group',
     body: `${me.username} removed you from "${g.name}".`,
@@ -550,8 +572,7 @@ app.post('/api/groups/delete', async (req, res) => {
   const g = store.getGroup(req.body?.groupId);
   if (!g) return res.status(404).json({ error: 'no such group' });
   if (g.ownerId !== me.id) return res.status(403).json({ error: 'only the creator can delete' });
-  for (const gi of store.groupInvitesForGroup(g.id)) await store.removeGroupInvite(gi.id);
-  // Also clear any key-time invites tied to this group so they don't linger as
+  // Clear any key-time invites tied to this group so they don't linger as
   // orphaned (group-less) invites in people's lists.
   for (const inv of store.invitesForGroup(g.id)) await store.removeInvite(inv.id);
   await store.removeGroup(g.id);
@@ -570,8 +591,12 @@ app.post('/api/groups/keytime', async (req, res) => {
   if (!recipients.length) return res.status(400).json({ error: 'no one else in the group yet' });
 
   // Only one active group key time at a time: block a new blast while an earlier
-  // one still has anyone who hasn't responded yet.
-  const active = store.invitesForGroup(g.id).some((i) => i.eventId && i.status === 'pending');
+  // one still has a *current* member who hasn't responded yet. Invites addressed
+  // to people who have since left or been removed don't count (they can never be
+  // resolved), so they can't wedge the group forever.
+  const active = store
+    .invitesForGroup(g.id)
+    .some((i) => i.eventId && i.status === 'pending' && g.members.includes(i.to));
   if (active) {
     return res.status(409).json({ error: 'a group key time is already active — wait for it to wrap up' });
   }
@@ -619,42 +644,39 @@ app.post('/api/subscribe', async (req, res) => {
 
 app.post('/api/settings', async (req, res) => {
   const { id, intervalMs } = req.body || {};
-  if (!id || typeof intervalMs !== 'number' || intervalMs <= 0) {
-    return res.status(400).json({ error: 'id and positive intervalMs required' });
+  if (typeof intervalMs !== 'number' || intervalMs <= 0) {
+    return res.status(400).json({ error: 'positive intervalMs required' });
   }
+  if (!requireOwnedRecord(req, res, id)) return;
   const rec = await store.setInterval_(id, intervalMs);
-  if (!rec) return res.status(404).json({ error: 'not found' });
   res.json(publicState(rec));
 });
 
 // --- Timer control -------------------------------------------------------
 app.post('/api/start', async (req, res) => {
+  if (!requireOwnedRecord(req, res, req.body?.id)) return;
   const rec = await store.startTimer(req.body?.id);
-  if (!rec) return res.status(404).json({ error: 'not found' });
   res.json(publicState(rec));
 });
 
 app.post('/api/stop', async (req, res) => {
+  if (!requireOwnedRecord(req, res, req.body?.id)) return;
   const rec = await store.stopTimer(req.body?.id);
-  if (!rec) return res.status(404).json({ error: 'not found' });
   res.json(publicState(rec));
 });
 
 // Manually trigger a key time now: log it in history and stop the timer,
 // just like an automatic fire — for when key time comes early.
 app.post('/api/fire', async (req, res) => {
+  if (!requireOwnedRecord(req, res, req.body?.id)) return;
   const rec = await store.recordFire(req.body?.id);
-  if (!rec) return res.status(404).json({ error: 'not found' });
   res.json(publicState(rec));
 });
 
 // Remove a single key-time entry from the current session's history.
 app.post('/api/history/remove', async (req, res) => {
-  const me = requireUser(req, res);
-  if (!me) return;
-  const rec = store.getRecord(req.body?.id);
-  if (!rec) return res.status(404).json({ error: 'not found' });
-  if (rec.userId !== me.id) return res.status(403).json({ error: 'not your timer' });
+  const rec = requireOwnedRecord(req, res, req.body?.id);
+  if (!rec) return;
   const firedAt = req.body?.firedAt;
   if (typeof firedAt !== 'number') return res.status(400).json({ error: 'firedAt required' });
   const updated = await store.removeHistoryEntry(rec.id, firedAt);
@@ -663,8 +685,8 @@ app.post('/api/history/remove', async (req, res) => {
 
 // --- State / stats -------------------------------------------------------
 app.get('/api/state', (req, res) => {
+  if (!requireOwnedRecord(req, res, req.query.id)) return;
   const rec = store.getRecord(req.query.id);
-  if (!rec) return res.status(404).json({ error: 'not found' });
   res.json(publicState(rec));
 });
 
@@ -679,8 +701,8 @@ app.post('/api/tick', async (req, res) => {
 
 // End the session: build a report of what just happened, then clear it all.
 app.post('/api/reset', async (req, res) => {
-  const rec = store.getRecord(req.body?.id);
-  if (!rec) return res.status(404).json({ error: 'not found' });
+  const rec = requireOwnedRecord(req, res, req.body?.id);
+  if (!rec) return;
   const report = buildReport(rec.history);
   // Save the finished session to history (only if anything actually happened).
   if (report.count > 0 && rec.userId) {

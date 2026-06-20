@@ -11,7 +11,7 @@ import crypto from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const COLLECTIONS = ['records', 'users', 'friendships', 'invites', 'sessions', 'groups', 'groupInvites'];
+const COLLECTIONS = ['records', 'users', 'friendships', 'invites', 'sessions', 'groups'];
 
 /** @type {Record<string, Map<string, object>>} */
 const data = Object.fromEntries(COLLECTIONS.map((c) => [c, new Map()]));
@@ -412,42 +412,4 @@ export async function saveGroup(g) {
 
 export async function removeGroup(id) {
   return drop('groups', id);
-}
-
-// =========================================================================
-// Group invites (invitations to JOIN a group)
-// =========================================================================
-export function getGroupInvite(id) {
-  return data.groupInvites.get(id) || null;
-}
-
-export function groupInvitesTo(userId) {
-  return [...data.groupInvites.values()].filter((i) => i.to === userId);
-}
-
-export function groupInvitesForGroup(groupId) {
-  return [...data.groupInvites.values()].filter((i) => i.groupId === groupId);
-}
-
-export async function createGroupInvite({ groupId, from, to }) {
-  const inv = {
-    id: crypto.randomUUID(),
-    groupId,
-    from,
-    to,
-    status: 'pending',
-    createdAt: Date.now(),
-    respondedAt: null,
-  };
-  await save('groupInvites', inv);
-  return inv;
-}
-
-export async function saveGroupInvite(inv) {
-  await save('groupInvites', inv);
-  return inv;
-}
-
-export async function removeGroupInvite(id) {
-  return drop('groupInvites', id);
 }

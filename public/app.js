@@ -87,8 +87,6 @@ const els = {
   groupName: $('group-name'),
   groupCreateBtn: $('group-create-btn'),
   groupMsg: $('group-msg'),
-  groupInvitesSection: $('group-invites-section'),
-  groupInvites: $('group-invites'),
   groupsList: $('groups-list'),
   groupsEmpty: $('groups-empty'),
   groupKeytimeModal: $('group-keytime-modal'),
@@ -750,7 +748,7 @@ function inviteItem(inv, { incoming }) {
   dismiss.className = 'invite-dismiss';
   dismiss.textContent = '✕';
   dismiss.setAttribute('aria-label', 'Dismiss');
-  dismiss.onclick = () => (isGroup ? dismissEvent(inv.event.id) : dismissInvite(inv.id));
+  dismiss.onclick = () => (isGroup ? dismissEvent(inv.event.id, !incoming) : dismissInvite(inv.id));
   li.append(dismiss);
 
   // Group context: who sent it (for incoming invites).
@@ -975,8 +973,10 @@ async function dismissInvite(id) {
   }
 }
 
-// Clear a whole group blast (all invites sharing one eventId) from my list.
-async function dismissEvent(eventId) {
+// Clear a whole group blast (all invites sharing one eventId). For the initiator
+// this cancels the key time for everyone, so confirm first.
+async function dismissEvent(eventId, isInitiator) {
+  if (isInitiator && !confirm('Cancel this group key time for everyone?')) return;
   try {
     await api('/api/invite/dismiss', 'POST', { eventId });
     await refreshInvites();
@@ -995,28 +995,8 @@ async function refreshGroups() {
   }
 }
 
-function renderGroups({ groups, invites }) {
+function renderGroups({ groups }) {
   state.groups = groups;
-
-  // Pending invitations to join a group.
-  els.groupInvites.innerHTML = '';
-  els.groupInvitesSection.classList.toggle('hidden', invites.length === 0);
-  invites.forEach((inv) => {
-    const actions = document.createElement('span');
-    actions.className = 'actions';
-    const acc = document.createElement('button');
-    acc.className = 'btn btn-accept';
-    acc.textContent = 'Join';
-    acc.onclick = () => respondGroupInvite(inv.groupInviteId, true);
-    const dec = document.createElement('button');
-    dec.className = 'btn btn-decline';
-    dec.textContent = 'Decline';
-    dec.onclick = () => respondGroupInvite(inv.groupInviteId, false);
-    actions.append(acc, dec);
-    els.groupInvites.append(
-      friendRow(`👥 ${inv.group.name} · from ${inv.user.username}`, '', actions)
-    );
-  });
 
   // Groups I'm in.
   const myFriendIds = new Set((state.friends || []).map((f) => f.user.id));
@@ -1132,15 +1112,6 @@ async function createGroup() {
     els.groupMsg.textContent = err.detail || 'Could not create group.';
   }
   setTimeout(() => { els.groupMsg.textContent = ''; }, 4000);
-}
-
-async function respondGroupInvite(groupInviteId, accept) {
-  try {
-    await api('/api/groups/respond', 'POST', { groupInviteId, accept });
-    await refreshGroups();
-  } catch {
-    /* ignore */
-  }
 }
 
 async function kickMember(groupId, userId, username) {
