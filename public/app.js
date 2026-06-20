@@ -101,6 +101,12 @@ const els = {
   groupInviteEmpty: $('group-invite-empty'),
   groupInviteCancel: $('group-invite-cancel'),
   groupInviteSend: $('group-invite-send'),
+  dialogModal: $('dialog-modal'),
+  dialogTitle: $('dialog-title'),
+  dialogMessage: $('dialog-message'),
+  dialogInput: $('dialog-input'),
+  dialogCancel: $('dialog-cancel'),
+  dialogConfirm: $('dialog-confirm'),
 };
 
 const ID_KEY = 'keytime.id';
@@ -143,6 +149,40 @@ async function api(path, method = 'GET', body) {
   }
   return res.json();
 }
+
+// --- In-app dialogs (replace window.confirm / window.prompt) -------------
+// One modal serves both. Returns a Promise: confirmDialog → boolean,
+// promptDialog → the entered string, or null if cancelled.
+let dialogResolve = null;
+let dialogIsInput = false;
+function openDialog({ title, message = '', input = false, value = '', maxLength, placeholder = '', confirmLabel = 'OK', danger = false }) {
+  dialogIsInput = input;
+  els.dialogTitle.textContent = title;
+  els.dialogMessage.textContent = message;
+  els.dialogMessage.classList.toggle('hidden', !message);
+  els.dialogInput.classList.toggle('hidden', !input);
+  if (input) {
+    els.dialogInput.value = value;
+    els.dialogInput.placeholder = placeholder;
+    if (maxLength) els.dialogInput.maxLength = maxLength;
+    else els.dialogInput.removeAttribute('maxlength');
+  }
+  els.dialogConfirm.textContent = confirmLabel;
+  els.dialogConfirm.classList.toggle('btn-decline', danger);
+  els.dialogConfirm.classList.toggle('btn-primary', !danger);
+  els.dialogModal.classList.remove('hidden');
+  if (input) setTimeout(() => { els.dialogInput.focus(); els.dialogInput.select(); }, 0);
+  return new Promise((resolve) => { dialogResolve = resolve; });
+}
+function closeDialog(result) {
+  if (!dialogResolve) return;
+  const resolve = dialogResolve;
+  dialogResolve = null;
+  els.dialogModal.classList.add('hidden');
+  resolve(result);
+}
+const confirmDialog = (opts) => openDialog({ ...opts, input: false }).then((r) => r === true);
+const promptDialog = (opts) => openDialog({ ...opts, input: true });
 
 function applyServerState(s) {
   state.server = s;
@@ -540,7 +580,7 @@ async function refreshSessions() {
 }
 
 async function removeSession(id) {
-  if (!confirm('Remove this session from your history?')) return;
+  if (!(await confirmDialog({ title: 'Remove session?', message: 'Remove this session from your history?', confirmLabel: 'Remove', danger: true }))) return;
   try {
     await api('/api/sessions/remove', 'POST', { sessionId: id });
     await refreshSessions();
@@ -698,7 +738,7 @@ async function respondFriend(id, accept) {
 }
 
 async function removeFriend(userId, username) {
-  if (!confirm(`Remove ${username} from your friends?`)) return;
+  if (!(await confirmDialog({ title: 'Remove friend?', message: `Remove ${username} from your friends?`, confirmLabel: 'Remove', danger: true }))) return;
   try {
     await api('/api/friends/remove', 'POST', { userId });
     await refreshFriends();
@@ -710,7 +750,7 @@ async function removeFriend(userId, username) {
 }
 
 async function cancelFriendRequest(userId, username) {
-  if (!confirm(`Cancel your friend request to ${username}?`)) return;
+  if (!(await confirmDialog({ title: 'Cancel request?', message: `Cancel your friend request to ${username}?`, confirmLabel: 'Cancel request', danger: true }))) return;
   try {
     await api('/api/friends/remove', 'POST', { userId });
     await refreshFriends();
@@ -991,7 +1031,7 @@ async function dismissInvite(id) {
 // Clear a whole group blast (all invites sharing one eventId). For the initiator
 // this cancels the key time for everyone, so confirm first.
 async function dismissEvent(eventId, isInitiator) {
-  if (isInitiator && !confirm('Cancel this group key time for everyone?')) return;
+  if (isInitiator && !(await confirmDialog({ title: 'Cancel key time?', message: 'Cancel this group key time for everyone?', confirmLabel: 'Cancel it', danger: true }))) return;
   try {
     await api('/api/invite/dismiss', 'POST', { eventId });
     await refreshInvites();
@@ -1135,7 +1175,7 @@ async function createGroup() {
 }
 
 async function kickMember(groupId, userId, username) {
-  if (!confirm(`Remove ${username} from this group?`)) return;
+  if (!(await confirmDialog({ title: 'Remove member?', message: `Remove ${username} from this group?`, confirmLabel: 'Remove', danger: true }))) return;
   try {
     await api('/api/groups/kick', 'POST', { groupId, userId });
     await refreshGroups();
@@ -1146,7 +1186,7 @@ async function kickMember(groupId, userId, username) {
 }
 
 async function leaveGroup(groupId, name) {
-  if (!confirm(`Leave "${name}"?`)) return;
+  if (!(await confirmDialog({ title: 'Leave group?', message: `Leave "${name}"?`, confirmLabel: 'Leave', danger: true }))) return;
   try {
     await api('/api/groups/leave', 'POST', { groupId });
     await refreshGroups();
@@ -1157,7 +1197,13 @@ async function leaveGroup(groupId, name) {
 }
 
 async function renameGroup(groupId, currentName) {
-  const name = prompt('Rename group', currentName);
+  const name = await promptDialog({
+    title: 'Rename group',
+    value: currentName,
+    maxLength: 15,
+    placeholder: 'new group name',
+    confirmLabel: 'Rename',
+  });
   if (name == null) return; // cancelled
   const trimmed = name.trim();
   if (!trimmed || trimmed === currentName) return;
@@ -1171,7 +1217,7 @@ async function renameGroup(groupId, currentName) {
 }
 
 async function deleteGroup(groupId, name) {
-  if (!confirm(`Delete "${name}" for everyone?`)) return;
+  if (!(await confirmDialog({ title: 'Delete group?', message: `Delete "${name}" for everyone?`, confirmLabel: 'Delete', danger: true }))) return;
   try {
     await api('/api/groups/delete', 'POST', { groupId });
     await refreshGroups();
@@ -1339,8 +1385,8 @@ async function doAuth(e) {
   }
 }
 
-function logout() {
-  if (!confirm('Log out of Key Time on this device?')) return;
+async function logout() {
+  if (!(await confirmDialog({ title: 'Log out?', message: 'Log out of Key Time on this device?', confirmLabel: 'Log out', danger: true }))) return;
   localStorage.removeItem(TOKEN_KEY);
   state.token = null;
   state.user = null;
@@ -1531,6 +1577,22 @@ async function init() {
   els.groupInviteCancel.addEventListener('click', closeGroupInviteModal);
   els.groupInviteModal.addEventListener('click', (e) => {
     if (e.target === els.groupInviteModal) closeGroupInviteModal();
+  });
+
+  // Generic confirm / prompt dialog
+  const cancelDialog = () => closeDialog(dialogIsInput ? null : false);
+  els.dialogConfirm.addEventListener('click', () =>
+    closeDialog(dialogIsInput ? els.dialogInput.value : true)
+  );
+  els.dialogCancel.addEventListener('click', cancelDialog);
+  els.dialogModal.addEventListener('click', (e) => {
+    if (e.target === els.dialogModal) cancelDialog();
+  });
+  els.dialogInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') closeDialog(els.dialogInput.value);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !els.dialogModal.classList.contains('hidden')) cancelDialog();
   });
 
   // Tab menu

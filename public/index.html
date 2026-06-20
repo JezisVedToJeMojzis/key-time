@@ -31,7 +31,7 @@
       <h2 id="auth-title">Welcome to Key Time</h2>
       <p class="auth-sub" id="auth-sub">Create an account — your username is how friends find you, and it works on any device.</p>
       <form id="auth-form" autocomplete="on">
-        <input id="auth-username" class="auth-input" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="username" maxlength="20" aria-label="Username" required />
+        <input id="auth-username" class="auth-input" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="username" maxlength="15" aria-label="Username" required />
         <input id="auth-password" class="auth-input" type="password" autocomplete="new-password" placeholder="password" aria-label="Password" required />
         <button id="auth-submit" type="submit" class="btn auth-btn">Create account</button>
       </form>
@@ -104,7 +104,7 @@
       <h3 class="subhead">Username</h3>
       <p class="hint" style="margin:0 0 10px">This is how friends find you.</p>
       <div class="friend-add">
-        <input id="name-input" type="text" name="display-name" autocomplete="off" maxlength="20" autocapitalize="none" spellcheck="false" placeholder="username" />
+        <input id="name-input" type="text" name="display-name" autocomplete="off" maxlength="15" autocapitalize="none" spellcheck="false" placeholder="username" />
         <button id="name-save" class="btn btn-secondary">Update</button>
       </div>
       <p id="name-msg" class="hint"></p>
@@ -134,7 +134,7 @@
 
       <div data-subpanel="friends">
         <div class="friend-add">
-          <input id="friend-username" type="text" name="friend-username" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="add by username" maxlength="20" />
+          <input id="friend-username" type="text" name="friend-username" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="add by username" maxlength="15" />
           <button id="friend-add-btn" class="btn btn-secondary">Add</button>
         </div>
         <p id="friend-msg" class="hint"></p>
@@ -159,7 +159,7 @@
 
       <div data-subpanel="groups" class="hidden">
         <div class="friend-add">
-          <input id="group-name" type="text" name="group-name" autocomplete="off" maxlength="30" placeholder="new group name" />
+          <input id="group-name" type="text" name="group-name" autocomplete="off" maxlength="15" placeholder="new group name" />
           <button id="group-create-btn" class="btn btn-secondary">Create</button>
         </div>
         <p id="group-msg" class="hint"></p>
@@ -298,6 +298,19 @@
       <div class="modal-actions">
         <button id="group-invite-cancel" type="button" class="btn btn-ghost">Cancel</button>
         <button id="group-invite-send" type="button" class="btn btn-primary">Add to group</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generic confirm / prompt dialog (replaces the browser's native popups) -->
+  <div id="dialog-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <h3 id="dialog-title">Confirm</h3>
+      <p id="dialog-message" class="dialog-message hidden"></p>
+      <input id="dialog-input" class="hidden" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" />
+      <div class="modal-actions">
+        <button id="dialog-cancel" type="button" class="btn btn-ghost">Cancel</button>
+        <button id="dialog-confirm" type="button" class="btn btn-primary">OK</button>
       </div>
     </div>
   </div>

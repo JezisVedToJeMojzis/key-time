@@ -44,8 +44,9 @@ export function verifyToken(token) {
   return userId;
 }
 
-// Validation for usernames: 3–20 chars — letters, digits, spaces and _ . ' -
+// Validation for usernames: 3–15 chars — letters, digits, spaces and _ . ' -
 // (spaces allowed so display-style names like "King Moses" work). Trim first.
+// Capped at 15 so long names don't overflow the UI rows.
 export function validUsername(name) {
-  return typeof name === 'string' && /^[\p{L}\p{N} _.'-]{3,20}$/u.test(name);
+  return typeof name === 'string' && /^[\p{L}\p{N} _.'-]{3,15}$/u.test(name);
 }

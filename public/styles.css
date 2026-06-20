@@ -464,6 +464,7 @@ html, body {
 .modal input:focus { outline: none; border-color: var(--accent); }
 .modal-actions { display: flex; gap: 10px; }
 .modal-actions .btn { flex: 1; }
+.dialog-message { margin: 0 0 18px; color: var(--text-dim); line-height: 1.45; }
 
 /* Invite friend picker (multi-select chips) */
 .invite-pick-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); margin: 0 0 10px; }

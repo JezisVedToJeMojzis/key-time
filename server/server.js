@@ -75,7 +75,7 @@ app.post('/api/register', async (req, res) => {
   const username = String(req.body?.username || '').trim().replace(/\s+/g, ' ');
   const { password } = req.body || {};
   if (!auth.validUsername(username)) {
-    return res.status(400).json({ error: "username: 3–20 chars — letters, digits, spaces, _ . ' -" });
+    return res.status(400).json({ error: "username: 3–15 chars — letters, digits, spaces, _ . ' -" });
   }
   if (!validPassword(password)) {
     return res.status(400).json({ error: 'password must be at least 6 characters' });
@@ -107,7 +107,7 @@ app.post('/api/username', async (req, res) => {
   if (!me) return;
   const username = String(req.body?.username || '').trim().replace(/\s+/g, ' ');
   if (!auth.validUsername(username)) {
-    return res.status(400).json({ error: "username: 3–20 chars — letters, digits, spaces, _ . ' -" });
+    return res.status(400).json({ error: "username: 3–15 chars — letters, digits, spaces, _ . ' -" });
   }
   const existing = store.getUserByUsername(username);
   if (existing && existing.id !== me.id) {
@@ -480,8 +480,8 @@ app.get('/api/groups', (req, res) => {
 app.post('/api/groups', async (req, res) => {
   const me = requireUser(req, res);
   if (!me) return;
-  const name = String(req.body?.name || '').trim().replace(/\s+/g, ' ').slice(0, 30);
-  if (name.length < 2) return res.status(400).json({ error: 'group name: 2–30 characters' });
+  const name = String(req.body?.name || '').trim().replace(/\s+/g, ' ').slice(0, 15);
+  if (name.length < 2) return res.status(400).json({ error: 'group name: 2–15 characters' });
   // A group needs members — require at least one accepted friend to add.
   const hasFriend = store.friendshipsFor(me.id).some((f) => f.status === 'accepted');
   if (!hasFriend) return res.status(400).json({ error: 'add a friend first' });
@@ -521,8 +521,8 @@ app.post('/api/groups/rename', async (req, res) => {
   const g = store.getGroup(req.body?.groupId);
   if (!g) return res.status(404).json({ error: 'no such group' });
   if (g.ownerId !== me.id) return res.status(403).json({ error: 'only the creator can rename' });
-  const name = String(req.body?.name || '').trim().replace(/\s+/g, ' ').slice(0, 30);
-  if (name.length < 2) return res.status(400).json({ error: 'group name: 2–30 characters' });
+  const name = String(req.body?.name || '').trim().replace(/\s+/g, ' ').slice(0, 15);
+  if (name.length < 2) return res.status(400).json({ error: 'group name: 2–15 characters' });
   g.name = name;
   await store.saveGroup(g);
   res.json({ id: g.id, name: g.name });
