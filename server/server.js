@@ -313,21 +313,28 @@ app.post('/api/invite', async (req, res) => {
   if (!f || f.status !== 'accepted') {
     return res.status(403).json({ error: 'you can only invite friends' });
   }
-  // Only a pending 1:1 invite counts as a duplicate — a pending group blast to
-  // the same person shouldn't block a personal invite.
-  const dup = store
+  const message = String(req.body?.message || '').trim().slice(0, 25);
+
+  // If a 1:1 invite to this friend is still pending, refresh it in place (update
+  // the note, bump the time, re-show it) instead of stacking a second one.
+  const pending = store
     .invitesFrom(me.id)
     .find((i) => i.to === friend.id && i.status === 'pending' && !i.eventId);
-  if (dup) return res.status(409).json({ error: 'invite already pending' });
-
-  // Replace any earlier resolved 1:1 invite to this friend so declined/accepted
-  // ones don't pile up — only the latest invite stays in the list.
-  for (const inv of store.invitesFrom(me.id)) {
-    if (inv.to === friend.id && !inv.eventId) await store.removeInvite(inv.id);
+  let inv;
+  if (pending) {
+    pending.message = message;
+    pending.createdAt = Date.now();
+    pending.hiddenFor = []; // un-hide it for either side after a re-send
+    inv = await store.saveInvite(pending);
+  } else {
+    // Otherwise drop any earlier *resolved* invite (so accepted/declined ones
+    // don't pile up) and create a fresh invite that shows up in the list.
+    for (const old of store.invitesFrom(me.id)) {
+      if (old.to === friend.id && !old.eventId) await store.removeInvite(old.id);
+    }
+    inv = await store.createInvite({ from: me.id, to: friend.id, message });
   }
 
-  const message = String(req.body?.message || '').trim().slice(0, 25);
-  const inv = await store.createInvite({ from: me.id, to: friend.id, message });
   await pushToUser(friend.id, {
     title: '🔑 Wanna have a key time?',
     body: message
