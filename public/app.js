@@ -807,14 +807,15 @@ function inviteItem(inv, { incoming }) {
   dismiss.onclick = () => (isGroup ? dismissEvent(inv.event.id, !incoming) : dismissInvite(inv.id));
   li.append(dismiss);
 
-  // Group context: who sent it (for incoming invites).
-  if (isGroup && incoming) {
+  // Group context: who created this group key time. Incoming rows carry the
+  // creator as inv.user; the creator's own (outgoing) row is "By you".
+  if (isGroup) {
     const ctx = document.createElement('div');
     ctx.className = 'invite-group';
-    const from = document.createElement('span');
-    from.className = 'invite-from';
-    from.textContent = `from ${inv.user.username}`;
-    ctx.append(from);
+    const by = document.createElement('span');
+    by.className = 'invite-from';
+    by.textContent = incoming ? `By ${inv.user.username}` : 'By you';
+    ctx.append(by);
     li.append(ctx);
   }
 
@@ -1341,11 +1342,9 @@ async function blastGroupKeytime(groupId, message, replace) {
       const a = err.body.active;
       const gName = (state.groups.find((g) => g.id === groupId) || {}).name || 'this group';
       const ok = await confirmDialog({
-        title: a.mine ? 'Recreate key time?' : 'Replace key time?',
-        message: a.mine
-          ? `You already have a pending key time for "${gName}" (${a.accepted}/${a.total} in). Recreate it with this message?`
-          : `${a.by} already started a key time for "${gName}" (${a.accepted}/${a.total} in). Replace it with yours?`,
-        confirmLabel: a.mine ? 'Recreate' : 'Replace',
+        title: 'Recreate key time?',
+        message: `You already have an active key time for "${gName}" (${a.accepted}/${a.total} in). Recreate it with this message?`,
+        confirmLabel: 'Recreate',
         danger: true,
       });
       if (ok) { await blastGroupKeytime(groupId, message, true); return; }

@@ -546,10 +546,10 @@ app.post('/api/groups/leave', async (req, res) => {
   g.members = g.members.filter((id) => id !== me.id);
   if (g.invitedBy) delete g.invitedBy[me.id];
   await store.saveGroup(g);
-  // Drop my own group key-time invites so they don't linger as a pending invite
-  // that blocks future group key times.
+  // Drop every group key-time invite I'm tied to — ones addressed to me, and any
+  // blast I started (so its recipient rows don't orphan in the DB once I'm gone).
   for (const inv of store.invitesForGroup(g.id)) {
-    if (inv.to === me.id) await store.removeInvite(inv.id);
+    if (inv.to === me.id || inv.from === me.id) await store.removeInvite(inv.id);
   }
   res.json({ ok: true });
 });
@@ -574,10 +574,11 @@ app.post('/api/groups/kick', async (req, res) => {
   g.members = g.members.filter((id) => id !== userId);
   if (g.invitedBy) delete g.invitedBy[userId];
   await store.saveGroup(g);
-  // Drop any group key-time invites addressed to the removed member so a dangling
-  // pending invite can't block future group key times.
+  // Drop every group key-time invite the removed member is tied to — ones
+  // addressed to them, and any blast they started (so its recipient rows don't
+  // orphan in the DB once they're gone).
   for (const inv of store.invitesForGroup(g.id)) {
-    if (inv.to === userId) await store.removeInvite(inv.id);
+    if (inv.to === userId || inv.from === userId) await store.removeInvite(inv.id);
   }
   await pushToUser(userId, {
     title: '🔑 Removed from group',
@@ -611,43 +612,40 @@ app.post('/api/groups/keytime', async (req, res) => {
   const recipients = g.members.filter((id) => id !== me.id);
   if (!recipients.length) return res.status(400).json({ error: 'no one else in the group yet' });
 
-  // Only one active group key time at a time. A blast counts as active while a
-  // *current* member still hasn't responded (invites to people who left don't
-  // count — they could never be resolved). Any member can replace an active
-  // blast (with `replace: true`) so it can never wedge the group forever.
-  const activeIds = [
+  // One active group key time *per person* — different members can run their own
+  // in parallel. A blast counts as active while a *current* member still hasn't
+  // responded (invites to people who left don't count). If I already have one,
+  // replacing it (`replace: true`) recreates mine; I can't touch anyone else's.
+  const myActiveIds = [
     ...new Set(
       store
         .invitesForGroup(g.id)
-        .filter((i) => i.eventId && i.status === 'pending' && g.members.includes(i.to))
+        .filter((i) => i.eventId && i.from === me.id && i.status === 'pending' && g.members.includes(i.to))
         .map((i) => i.eventId)
     ),
   ];
-  if (activeIds.length && !req.body?.replace) {
-    const all = store.invitesByEvent(activeIds[0]);
-    const starter = store.getUser(all[0].from);
-    const hasSelf = all.some((i) => i.to === all[0].from);
+  if (myActiveIds.length && !req.body?.replace) {
+    const all = store.invitesByEvent(myActiveIds[0]);
+    const hasSelf = all.some((i) => i.to === me.id);
     const base = hasSelf ? 0 : 1;
     return res.status(409).json({
-      error: 'a group key time is already active',
+      error: 'you already have an active group key time',
       active: {
-        by: starter ? starter.username : 'someone',
-        byId: all[0].from,
-        mine: all[0].from === me.id,
+        mine: true,
         accepted: all.filter((x) => x.status === 'accepted').length + base,
         total: all.length + base,
       },
     });
   }
-  // Replacing: cancel the active blast(s) first — clear their rows and let
+  // Replacing: cancel *my own* active blast(s) first — clear their rows and let
   // anyone who'd already accepted know it's off.
-  if (activeIds.length) {
-    for (const eid of activeIds) {
+  if (myActiveIds.length) {
+    for (const eid of myActiveIds) {
       for (const inv of store.invitesByEvent(eid)) {
-        if (inv.status === 'accepted' && inv.to !== inv.from && inv.to !== me.id) {
+        if (inv.status === 'accepted' && inv.to !== inv.from) {
           await pushToUser(inv.to, {
             title: '🔑 Group key time replaced',
-            body: `${me.username} replaced the "${g.name}" group key time.`,
+            body: `${me.username} replaced their "${g.name}" group key time.`,
             data: { url: './?invites=1' },
           });
         }
