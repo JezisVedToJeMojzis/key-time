@@ -140,11 +140,12 @@ async function api(path, method = 'GET', body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
-    let detail = '';
-    try { detail = (await res.json()).error || ''; } catch {}
+    let detail = '', body = null;
+    try { body = await res.json(); detail = body.error || ''; } catch {}
     const err = new Error(`${path} -> ${res.status}`);
     err.status = res.status;
     err.detail = detail;
+    err.body = body; // full error payload (e.g. the active-blast info on a 409)
     throw err;
   }
   return res.json();
@@ -994,8 +995,24 @@ async function sendInvite() {
     try {
       await api('/api/invite', 'POST', { toUserId: t.id, message });
       sent++;
-    } catch {
-      failed.push(t.username);
+    } catch (err) {
+      // An invite to this friend already exists — offer to replace it, then retry.
+      if (err.status === 409 && err.body?.active) {
+        const ok = await confirmDialog({
+          title: 'Replace invite?',
+          message: err.body.active.status === 'accepted'
+            ? `${t.username} already accepted your key time invite. Replace it with a new one?`
+            : `You already have a pending key time invite to ${t.username}. Replace it?`,
+          confirmLabel: 'Replace',
+          danger: true,
+        });
+        if (ok) {
+          try { await api('/api/invite', 'POST', { toUserId: t.id, message, replace: true }); sent++; }
+          catch { failed.push(t.username); }
+        }
+      } else {
+        failed.push(t.username);
+      }
     }
   }
 
@@ -1302,12 +1319,31 @@ async function sendGroupKeytime() {
   const message = els.groupKeytimeMessage.value.trim();
   closeGroupKeytimeModal();
   if (!groupId) return;
+  await blastGroupKeytime(groupId, message, false);
+}
+
+async function blastGroupKeytime(groupId, message, replace) {
   els.groupMsg.textContent = '';
   try {
-    const r = await api('/api/groups/keytime', 'POST', { groupId, message });
+    const r = await api('/api/groups/keytime', 'POST', { groupId, message, replace });
     els.groupMsg.textContent = `Key time invite sent to ${r.sent} ${r.sent === 1 ? 'person' : 'people'}.`;
     await refreshInvites();
   } catch (err) {
+    // An active blast already exists — offer to replace it, then retry.
+    if (err.status === 409 && err.body?.active) {
+      const a = err.body.active;
+      const ok = await confirmDialog({
+        title: a.mine ? 'Recreate key time?' : 'Replace key time?',
+        message: a.mine
+          ? `You already have a pending group key time (${a.accepted}/${a.total} in). Recreate it with this message?`
+          : `${a.by} already started a group key time (${a.accepted}/${a.total} in). Replace it with yours?`,
+        confirmLabel: a.mine ? 'Recreate' : 'Replace',
+        danger: true,
+      });
+      if (ok) { await blastGroupKeytime(groupId, message, true); return; }
+      els.groupMsg.textContent = '';
+      return;
+    }
     els.groupMsg.textContent = err.detail || 'Could not invite the group.';
   }
   setTimeout(() => { els.groupMsg.textContent = ''; }, 4000);

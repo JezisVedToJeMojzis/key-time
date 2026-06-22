@@ -315,25 +315,25 @@ app.post('/api/invite', async (req, res) => {
   }
   const message = String(req.body?.message || '').trim().slice(0, 25);
 
-  // If a 1:1 invite to this friend is still pending, refresh it in place (update
-  // the note, bump the time, re-show it) instead of stacking a second one.
-  const pending = store
+  // A pending or accepted 1:1 invite to this friend needs confirmation before we
+  // replace it (replacing an accepted one resets them to pending). A declined one
+  // is just quietly superseded.
+  const existing = store
     .invitesFrom(me.id)
-    .find((i) => i.to === friend.id && i.status === 'pending' && !i.eventId);
-  let inv;
-  if (pending) {
-    pending.message = message;
-    pending.createdAt = Date.now();
-    pending.hiddenFor = []; // un-hide it for either side after a re-send
-    inv = await store.saveInvite(pending);
-  } else {
-    // Otherwise drop any earlier *resolved* invite (so accepted/declined ones
-    // don't pile up) and create a fresh invite that shows up in the list.
-    for (const old of store.invitesFrom(me.id)) {
-      if (old.to === friend.id && !old.eventId) await store.removeInvite(old.id);
-    }
-    inv = await store.createInvite({ from: me.id, to: friend.id, message });
+    .find((i) => i.to === friend.id && !i.eventId && (i.status === 'pending' || i.status === 'accepted'));
+  if (existing && !req.body?.replace) {
+    return res.status(409).json({
+      error: 'an invite already exists',
+      active: { status: existing.status, to: friend.username },
+    });
   }
+
+  // Drop any earlier 1:1 invite to this friend (the one being replaced, or a
+  // stale declined one) so only the fresh invite remains.
+  for (const old of store.invitesFrom(me.id)) {
+    if (old.to === friend.id && !old.eventId) await store.removeInvite(old.id);
+  }
+  const inv = await store.createInvite({ from: me.id, to: friend.id, message });
 
   await pushToUser(friend.id, {
     title: '🔑 Wanna have a key time?',
@@ -611,15 +611,49 @@ app.post('/api/groups/keytime', async (req, res) => {
   const recipients = g.members.filter((id) => id !== me.id);
   if (!recipients.length) return res.status(400).json({ error: 'no one else in the group yet' });
 
-  // Only one active group key time at a time: block a new blast while an earlier
-  // one still has a *current* member who hasn't responded yet. Invites addressed
-  // to people who have since left or been removed don't count (they can never be
-  // resolved), so they can't wedge the group forever.
-  const active = store
-    .invitesForGroup(g.id)
-    .some((i) => i.eventId && i.status === 'pending' && g.members.includes(i.to));
-  if (active) {
-    return res.status(409).json({ error: 'a group key time is already active — wait for it to wrap up' });
+  // Only one active group key time at a time. A blast counts as active while a
+  // *current* member still hasn't responded (invites to people who left don't
+  // count — they could never be resolved). Any member can replace an active
+  // blast (with `replace: true`) so it can never wedge the group forever.
+  const activeIds = [
+    ...new Set(
+      store
+        .invitesForGroup(g.id)
+        .filter((i) => i.eventId && i.status === 'pending' && g.members.includes(i.to))
+        .map((i) => i.eventId)
+    ),
+  ];
+  if (activeIds.length && !req.body?.replace) {
+    const all = store.invitesByEvent(activeIds[0]);
+    const starter = store.getUser(all[0].from);
+    const hasSelf = all.some((i) => i.to === all[0].from);
+    const base = hasSelf ? 0 : 1;
+    return res.status(409).json({
+      error: 'a group key time is already active',
+      active: {
+        by: starter ? starter.username : 'someone',
+        byId: all[0].from,
+        mine: all[0].from === me.id,
+        accepted: all.filter((x) => x.status === 'accepted').length + base,
+        total: all.length + base,
+      },
+    });
+  }
+  // Replacing: cancel the active blast(s) first — clear their rows and let
+  // anyone who'd already accepted know it's off.
+  if (activeIds.length) {
+    for (const eid of activeIds) {
+      for (const inv of store.invitesByEvent(eid)) {
+        if (inv.status === 'accepted' && inv.to !== inv.from && inv.to !== me.id) {
+          await pushToUser(inv.to, {
+            title: '🔑 Group key time replaced',
+            body: `${me.username} replaced the "${g.name}" group key time.`,
+            data: { url: './?invites=1' },
+          });
+        }
+        await store.removeInvite(inv.id);
+      }
+    }
   }
 
   const eventId = crypto.randomUUID();
