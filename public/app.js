@@ -1327,27 +1327,40 @@ async function sendGroupKeytime() {
   const message = els.groupKeytimeMessage.value.trim();
   closeGroupKeytimeModal();
   if (!groupId) return;
-  await blastGroupKeytime(groupId, message, false);
+  await blastGroupKeytime(groupId, message);
 }
 
-async function blastGroupKeytime(groupId, message, replace) {
+async function blastGroupKeytime(groupId, message, { replace = false, force = false } = {}) {
   els.groupMsg.textContent = '';
   try {
-    const r = await api('/api/groups/keytime', 'POST', { groupId, message, replace });
+    const r = await api('/api/groups/keytime', 'POST', { groupId, message, replace, force });
     els.groupMsg.textContent = `Key time invite sent to ${r.sent} ${r.sent === 1 ? 'person' : 'people'}.`;
     await refreshInvites();
   } catch (err) {
-    // An active blast already exists — offer to replace it, then retry.
     if (err.status === 409 && err.body?.active) {
       const a = err.body.active;
       const gName = (state.groups.find((g) => g.id === groupId) || {}).name || 'this group';
-      const ok = await confirmDialog({
-        title: 'Recreate key time?',
-        message: `You already have an active key time for "${gName}" (${a.accepted}/${a.total} in). Recreate it with this message?`,
-        confirmLabel: 'Recreate',
-        danger: true,
-      });
-      if (ok) { await blastGroupKeytime(groupId, message, true); return; }
+      if (a.mine) {
+        // I already have my own active blast — offer to recreate (replace) it.
+        const ok = await confirmDialog({
+          title: 'Recreate key time?',
+          message: `You already have an active key time for "${gName}" (${a.accepted}/${a.total} in). Recreate it with this message?`,
+          confirmLabel: 'Recreate',
+          danger: true,
+        });
+        if (ok) { await blastGroupKeytime(groupId, message, { replace: true }); return; }
+      } else {
+        // Someone else already has one — offer to add a second, parallel blast.
+        const many = a.count > 1;
+        const ok = await confirmDialog({
+          title: 'Create another key time?',
+          message: many
+            ? `There are already ${a.count} active key times for "${gName}" (by ${a.by}). Create an additional one?`
+            : `${a.by} already started a key time for "${gName}". Create an additional one?`,
+          confirmLabel: 'Create',
+        });
+        if (ok) { await blastGroupKeytime(groupId, message, { force: true }); return; }
+      }
       els.groupMsg.textContent = '';
       return;
     }

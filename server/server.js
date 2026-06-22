@@ -637,6 +637,24 @@ app.post('/api/groups/keytime', async (req, res) => {
       },
     });
   }
+
+  // Someone else already has an active blast here. Confirm (`force: true`) before
+  // adding a second one in parallel, naming who started the existing one(s).
+  if (!myActiveIds.length && !req.body?.force) {
+    const others = store
+      .invitesForGroup(g.id)
+      .filter((i) => i.eventId && i.from !== me.id && i.status === 'pending' && g.members.includes(i.to));
+    if (others.length) {
+      const starters = [...new Set(others.map((i) => i.from))]
+        .map((id) => store.getUser(id)?.username)
+        .filter(Boolean);
+      return res.status(409).json({
+        error: 'a group key time is already active',
+        active: { mine: false, by: starters.join(', '), count: starters.length },
+      });
+    }
+  }
+
   // Replacing: cancel *my own* active blast(s) first — clear their rows and let
   // anyone who'd already accepted know it's off.
   if (myActiveIds.length) {
