@@ -541,6 +541,17 @@ html, body {
 .group-summary .group-count { font-size: 0.78rem; color: var(--text-dim); white-space: nowrap; }
 .group-invite-btn { flex: 0 0 auto; padding: 7px 12px; font-size: 0.85rem; }
 .group-members { list-style: none; margin: 0; padding: 0 14px; display: flex; flex-direction: column; gap: 6px; }
+.creator-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  vertical-align: middle;
+}
 .group-members li {
   display: flex;
   align-items: center;

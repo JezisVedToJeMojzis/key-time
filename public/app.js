@@ -1131,7 +1131,14 @@ function renderGroups({ groups }) {
         if (!actions.children.length) actions = null;
       }
       const label = isMe ? `👤 ${m.username} (you)` : `👤 ${m.username}`;
-      memberUl.append(friendRow(label, '', actions));
+      const row = friendRow(label, '', actions);
+      if (m.id === g.ownerId) {
+        const badge = document.createElement('span');
+        badge.className = 'creator-badge';
+        badge.textContent = 'Creator';
+        row.querySelector('.name').append(badge);
+      }
+      memberUl.append(row);
     });
     details.append(memberUl);
 
@@ -1332,11 +1339,12 @@ async function blastGroupKeytime(groupId, message, replace) {
     // An active blast already exists — offer to replace it, then retry.
     if (err.status === 409 && err.body?.active) {
       const a = err.body.active;
+      const gName = (state.groups.find((g) => g.id === groupId) || {}).name || 'this group';
       const ok = await confirmDialog({
         title: a.mine ? 'Recreate key time?' : 'Replace key time?',
         message: a.mine
-          ? `You already have a pending group key time (${a.accepted}/${a.total} in). Recreate it with this message?`
-          : `${a.by} already started a group key time (${a.accepted}/${a.total} in). Replace it with yours?`,
+          ? `You already have a pending key time for "${gName}" (${a.accepted}/${a.total} in). Recreate it with this message?`
+          : `${a.by} already started a key time for "${gName}" (${a.accepted}/${a.total} in). Replace it with yours?`,
         confirmLabel: a.mine ? 'Recreate' : 'Replace',
         danger: true,
       });
