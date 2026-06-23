@@ -156,7 +156,7 @@ async function api(path, method = 'GET', body) {
 // promptDialog → the entered string, or null if cancelled.
 let dialogResolve = null;
 let dialogIsInput = false;
-function openDialog({ title, message = '', input = false, value = '', maxLength, placeholder = '', confirmLabel = 'OK', danger = false }) {
+function openDialog({ title, message = '', input = false, value = '', maxLength, placeholder = '', confirmLabel = 'OK', cancelLabel = 'Cancel', danger = false }) {
   dialogIsInput = input;
   els.dialogTitle.textContent = title;
   els.dialogMessage.textContent = message;
@@ -168,6 +168,7 @@ function openDialog({ title, message = '', input = false, value = '', maxLength,
     if (maxLength) els.dialogInput.maxLength = maxLength;
     else els.dialogInput.removeAttribute('maxlength');
   }
+  els.dialogCancel.textContent = cancelLabel;
   els.dialogConfirm.textContent = confirmLabel;
   els.dialogConfirm.classList.toggle('btn-decline', danger);
   els.dialogConfirm.classList.toggle('btn-primary', !danger);
@@ -1049,7 +1050,7 @@ async function dismissInvite(id) {
 // Clear a whole group blast (all invites sharing one eventId). For the initiator
 // this cancels the key time for everyone, so confirm first.
 async function dismissEvent(eventId, isInitiator) {
-  if (isInitiator && !(await confirmDialog({ title: 'Cancel key time?', message: 'Cancel this group key time for everyone?', confirmLabel: 'Cancel it', danger: true }))) return;
+  if (isInitiator && !(await confirmDialog({ title: 'Cancel key time?', message: 'Cancel this group key time for everyone?', confirmLabel: 'Cancel invite', cancelLabel: 'Keep invite', danger: true }))) return;
   try {
     await api('/api/invite/dismiss', 'POST', { eventId });
     await refreshInvites();
