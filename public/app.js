@@ -940,6 +940,11 @@ function inviteItem(inv, { incoming }) {
 }
 
 function renderInvites({ incoming, outgoing }) {
+  // Newest invites first, so a freshly created/received one lands on top.
+  const byNewest = (a, b) => (b.createdAt || 0) - (a.createdAt || 0);
+  incoming = [...incoming].sort(byNewest);
+  outgoing = [...outgoing].sort(byNewest);
+
   els.invitesIncoming.innerHTML = '';
   els.invitesIncomingSection.classList.toggle('hidden', incoming.length === 0);
   incoming.forEach((inv) => els.invitesIncoming.append(inviteItem(inv, { incoming: true })));
