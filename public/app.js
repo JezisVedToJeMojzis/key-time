@@ -312,8 +312,9 @@ function render() {
   els.statusText.textContent = running ? 'Running' : (s ? 'Waiting' : '—');
   els.statusText.className = 'status-pill ' + (running ? 'running' : (s ? 'waiting' : ''));
 
-  // Show the reset button only when there's an active session to end.
-  const hasSession = running || (s?.history?.length > 0);
+  // Show the reset button only when there's an active session to end. A pending
+  // auto-fire (elapsed but not yet restarted) still counts as an active session.
+  const hasSession = running || (s?.history?.length > 0) || !!s?.lastFiredAt;
   els.resetBtn.classList.toggle('hidden', !hasSession);
 
   updateIntervalSummary();
@@ -649,12 +650,21 @@ async function refreshFriends() {
   }
 }
 
-function friendRow(username, tagText, actions) {
+function friendRow(username, tagText, actions, subtitle) {
   const li = document.createElement('li');
+  const main = document.createElement('div');
+  main.className = 'friend-main';
   const name = document.createElement('span');
   name.className = 'name';
   name.textContent = username;
-  li.append(name);
+  main.append(name);
+  if (subtitle) {
+    const sub = document.createElement('span');
+    sub.className = 'friend-sub';
+    sub.textContent = subtitle;
+    main.append(sub);
+  }
+  li.append(main);
   if (tagText) {
     const tag = document.createElement('span');
     tag.className = 'gap';
@@ -697,7 +707,10 @@ function renderFriends({ friends, incoming, outgoing }) {
     remove.textContent = 'Remove';
     remove.onclick = () => removeFriend(fr.user.id, fr.user.username);
     actions.append(invite, remove);
-    els.friendsList.append(friendRow(`👤 ${fr.user.username}`, '', actions));
+    const lastKey = fr.lastKeyTime
+      ? `Last key time: ${fmtTime(fr.lastKeyTime)}`
+      : 'No key time yet';
+    els.friendsList.append(friendRow(`👤 ${fr.user.username}`, '', actions, lastKey));
   });
   outgoing.forEach((o) => {
     const actions = document.createElement('span');

@@ -146,6 +146,7 @@ export async function upsertSubscription({ id, subscription, intervalMs, userId 
       nextFireAt: null,
       running: false,
       lastFiredAt: null, // when the last key time fired while stopped (overdue marker)
+      lastKeyTime: null, // when they last had key time (restart after a key time, or "Key time now")
       createdAt: Date.now(),
       history: [],
     };
@@ -167,6 +168,15 @@ export async function setInterval_(id, intervalMs) {
 export async function startTimer(id) {
   const rec = data.records.get(id);
   if (!rec) return null;
+  // A timer that elapsed on its own isn't a real key time until the user acts on
+  // it. Restarting the timer IS that act, so log the key time now — stamped at
+  // the restart, not when the alert fired. The very first start (no pending
+  // fire) doesn't log anything.
+  if (rec.lastFiredAt) {
+    const now = Date.now();
+    rec.history.push({ firedAt: now });
+    rec.lastKeyTime = now;
+  }
   rec.running = true;
   rec.nextFireAt = Date.now() + rec.intervalMs;
   rec.lastFiredAt = null; // restarting clears the "overdue since last key time" marker
@@ -185,19 +195,29 @@ export async function stopTimer(id) {
 }
 
 /**
- * Mark a key time as fired: log it in history and STOP the timer.
- * The next timer only restarts when the user opens the notification and
- * calls startTimer again.
+ * Handle the timer reaching zero. STOPS the timer either way.
+ * - Automatic fire (overdue): the alert went off on its own. It's not counted as
+ *   a real key time yet — startTimer logs it, stamped at the restart, once the
+ *   user acts. Until then it's just an overdue marker (lastFiredAt).
+ * - Manual "Key time now" (overdue:false): the user is doing it now, so it's
+ *   logged to history immediately at firedAt.
  */
 export async function recordFire(id, firedAt = Date.now(), { overdue = true } = {}) {
   const rec = data.records.get(id);
   if (!rec) return null;
-  rec.history.push({ firedAt });
   rec.running = false;
   rec.nextFireAt = null;
-  // The overdue clock only applies when the timer elapsed on its own. A manual
-  // "Key time now" is intentional, so it doesn't count as overdue.
-  rec.lastFiredAt = overdue ? firedAt : null;
+  if (overdue) {
+    // The timer elapsed on its own. That alert doesn't mean the user did key
+    // time yet — it only counts once they restart (the act). Mark it as overdue
+    // until then; the key time gets logged (stamped at the restart) in startTimer.
+    rec.lastFiredAt = firedAt;
+  } else {
+    // Manual "Key time now" — the user is doing it right now, so log it here.
+    rec.history.push({ firedAt });
+    rec.lastFiredAt = null;
+    rec.lastKeyTime = firedAt;
+  }
   await save('records', rec);
   return rec;
 }

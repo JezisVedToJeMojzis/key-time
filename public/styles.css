@@ -373,7 +373,9 @@ html, body {
   padding: 10px 14px;
   font-size: 0.95rem;
 }
+.friend-list .friend-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .friend-list .name { font-weight: 600; }
+.friend-list .friend-sub { font-size: 0.75rem; color: var(--text-dim); }
 .friend-list .actions { display: flex; gap: 8px; }
 .friend-list .actions .btn { flex: 0 0 auto; padding: 7px 12px; font-size: 0.85rem; }
 .btn-accept { background: var(--ok); }

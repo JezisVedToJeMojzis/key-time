@@ -148,7 +148,18 @@ app.get('/api/friends', (req, res) => {
     const other = store.getUser(otherId);
     if (!other) continue;
     const entry = { friendshipId: f.id, user: publicUser(other) };
-    if (f.status === 'accepted') friends.push(entry);
+    if (f.status === 'accepted') {
+      // Most recent key time across all of this friend's devices, if any. Set
+      // when they restart the timer after a key time or press "Key time now".
+      let lastKeyTime = null;
+      for (const rec of store.recordsByUser(otherId)) {
+        if (rec.lastKeyTime && (lastKeyTime === null || rec.lastKeyTime > lastKeyTime)) {
+          lastKeyTime = rec.lastKeyTime;
+        }
+      }
+      entry.lastKeyTime = lastKeyTime;
+      friends.push(entry);
+    }
     else if (f.addressee === me.id) incoming.push(entry);
     else outgoing.push(entry);
   }
